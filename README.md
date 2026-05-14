@@ -133,6 +133,51 @@ Noise models: `depolarizing_noise(p_single, p_two)`, `amplitude_damping_noise(ga
 
 ---
 
+## Document workflow (Phase 2 PDF preparation)
+
+> ⚠️ **AI disqualification warning** — the competition rules prohibit AI authorship.  
+> This workflow produces **data, figures, and tables only**. All document text must be written by the team.
+
+```bash
+# Full run — produces 8 PNGs + 3 Markdown tables (~30–40 min)
+python run_doc_workflow.py
+
+# Fast validation pass (~8–12 min, smaller datasets)
+python run_doc_workflow.py --fast
+
+# Skip shot-based noise sweep (saves ~10 min)
+python run_doc_workflow.py --skip-noise
+
+# Re-generate tables only from an existing strategy_comparison.csv
+python run_doc_workflow.py --tables-only
+```
+
+All outputs land in `results/doc/`.
+
+### Three QRC strategies compared
+
+| Strategy | Hamiltonian / Encoding | Key property |
+|----------|----------------------|--------------|
+| **A — Ising ZZ** | ZZ couplings only | Baseline; fewest gates |
+| **B — Heisenberg XX+YY+ZZ** | Full isotropic exchange | Richer entanglement; 3× more 2q gates |
+| **C — IQP Encoding** | Degree-2 polynomial feature map → Ising reservoir | Captures input cross-terms with linear readout |
+
+### Output assets and document sections
+
+| File | Document section |
+|------|-----------------|
+| `results/doc/circuit_ising/heisenberg/iqp.png` | §2 Technical approach |
+| `results/doc/pipeline_diagram.png` | §1 Focus area / §3 Data modelling |
+| `results/doc/strategy_comparison.png` | §4 Quantum advantage |
+| `results/doc/scaling_lines.png` | §4 Quantum advantage |
+| `results/doc/noise_robustness.png` | §5 Platform justification |
+| `results/doc/financial_predictions_doc.png` | §1 Focus area |
+| `results/doc/table_strategy_summary.md` | §2 Technical approach |
+| `results/doc/table_baselines_financial.md` | §3 Data modelling |
+| `results/doc/table_qubit_scaling.md` | §5 Phase 3 scaling |
+
+---
+
 ## Further data / next steps for Phase 3
 
 | What is needed | Where to get it |

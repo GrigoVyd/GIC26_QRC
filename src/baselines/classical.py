@@ -126,17 +126,29 @@ class EchoStateNetwork:
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "EchoStateNetwork":
         """
-        X : (T, n_in) — full training sequence
-        y : (T,)      — targets aligned with X
+        X : (T, n_in) -- full training sequence
+        y : (T,)      -- targets aligned with X
         """
         states = self._run(X)
         y_trimmed = y[self.warmup: self.warmup + len(states)]
         self._readout.fit(states, y_trimmed)
+        # Save reservoir state after all training samples for warm-start on test
+        s = np.zeros(self.n_reservoir)
+        for x in X:
+            s_new = np.tanh(self.W @ s + self.W_in @ x)
+            s = (1.0 - self.leak_rate) * s + self.leak_rate * s_new
+        self._last_state = s.copy()
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        states = self._run(X)
-        return self._readout.predict(states)
+        # Start from last training state; collect ALL test states (no warmup skip)
+        s = getattr(self, "_last_state", np.zeros(self.n_reservoir)).copy()
+        states = []
+        for x in X:
+            s_new = np.tanh(self.W @ s + self.W_in @ x)
+            s = (1.0 - self.leak_rate) * s + self.leak_rate * s_new
+            states.append(s.copy())
+        return self._readout.predict(np.array(states))
 
 
 # ---------------------------------------------------------------------------
