@@ -195,5 +195,5 @@ def print_metrics(name: str, metrics: dict) -> None:
     m = metrics
     print(
         f"  {name:<35}  RMSE={m['RMSE']:.5f}  MAE={m['MAE']:.5f}"
-        f"  R²={m['R2']:.4f}  NMSE={m['NMSE']:.5f}"
+        f"  R2={m['R2']:.4f}  NMSE={m['NMSE']:.5f}"
     )
