@@ -89,11 +89,22 @@ def _qrc_regress(
     X_tr: np.ndarray,
     X_te: np.ndarray,
     y_tr: np.ndarray,
+    X_tr_full: np.ndarray | None = None,
+    X_te_full: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float]:
-    """Transform inputs through QRC, CV-select alpha, fit readout. Returns (y_hat, alpha)."""
+    """Transform inputs through QRC, CV-select alpha, fit readout. Returns (y_hat, alpha).
+
+    If X_tr_full/X_te_full are provided, the readout sees both reservoir features
+    and the original (enhanced) features — a hybrid quantum+classical approach that
+    lets the Ridge exploit both representations.
+    """
     sc_in = StandardScaler()
     R_tr = qrc.transform(sc_in.fit_transform(X_tr))
     R_te = qrc.transform(sc_in.transform(X_te))
+
+    if X_tr_full is not None and X_te_full is not None:
+        R_tr = np.hstack([R_tr, X_tr_full])
+        R_te = np.hstack([R_te, X_te_full])
 
     sc_r = StandardScaler()
     R_tr_s = sc_r.fit_transform(R_tr)
@@ -290,13 +301,14 @@ def run(
                     connectivity=conn,
                     seed=seed,
                 )
-                # Feed first n_qubits features of the enhanced matrix
                 t0 = time.time()
                 y_hat, alpha = _qrc_regress(
                     qrc,
                     X_tr[:, :n_qubits],
                     X_te[:, :n_qubits],
                     y_tr,
+                    X_tr_full=X_tr,
+                    X_te_full=X_te,
                 )
                 elapsed = time.time() - t0
                 m = regression_metrics(y_te, y_hat)
