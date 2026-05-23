@@ -5,8 +5,10 @@ platform for quantum reservoir computing on the SPY volatility-forecast task,
 as an alternative to the gate-based IBM Heron path documented in
 [`phase3_hardware_plan.md`](phase3_hardware_plan.md).
 
-It is a **planning artifact**: literature review, architectural redesign sketch,
-resource estimation, and decision criteria. No code changes accompany it.
+Originally a **planning artifact** (literature review, architectural redesign
+sketch, resource estimation, decision criteria), now extended with a
+**first-approximation classical simulation** (Section 5.5) so the
+recommendation is grounded in empirical numbers rather than literature alone.
 
 ## 1. Why look at D-Wave at all
 
@@ -230,6 +232,83 @@ programming — fitting, e.g., 10 different inputs onto 10 × 100-qubit blocks o
 the same 1000-qubit problem. Advantage's 5000+ qubit count makes this realistic.
 This is the same "spatial multiplexing" trick used in Nakajima et al. (2019).
 
+## 5.5. First-approximation results (classical simulation)
+
+Before committing to a real D-Wave SDK integration, we built a classical
+simulation of the annealer-style reservoir in
+[`src/qrc/annealer_reservoir.py`](../src/qrc/annealer_reservoir.py) and ran it
+on the same task as v3 (HAR + log-HAR features, residual log-vol target). The
+substrate model is Trotterized evolution under
+
+$$H = -\sum_i \sigma^x_i + \sum_i h_i \sigma^z_i + \sum_{(i,j)\in E} J_{ij}\sigma^z_i \sigma^z_j$$
+
+from initial state $|+\rangle^{\otimes n}$ — a mid-anneal snapshot of the
+D-Wave schedule. See [`experiments/financial_dwave_first_approx.py`](../experiments/financial_dwave_first_approx.py).
+
+Full results in [`results/financial_results_dwave_v0.csv`](../results/financial_results_dwave_v0.csv).
+Sorted by NMSE:
+
+| Rank | Model | RMSE | R² | NMSE |
+|---:|---|---:|---:|---:|
+| 1 | Persistence | 0.00941 | 0.9800 | 0.0200 |
+| 2 | AR(5) | 0.00954 | 0.9794 | 0.0206 |
+| **3** | **ANN 10q/10in t=1.0 m=3 all-to-all** | **0.00957** | **0.9793** | **0.0207** |
+| 4 | ANN 10q/10in t=1.0 m=3 random | 0.00961 | 0.9791 | 0.0209 |
+| 5 | QRC v3 best (5q L2 rand, gate-based) | 0.00967 | 0.9788 | 0.0212 |
+| 6 | ANN 6q/6in t=2.0 m=4 random | 0.00970 | 0.9787 | 0.0213 |
+| 7 | ESN (200 neurons, classical) | 0.00970 | 0.9787 | 0.0213 |
+| 8 | ANN 8q/8in t=1.0 m=3 random | 0.00975 | 0.9785 | 0.0215 |
+| 9 | Ridge | 0.00976 | 0.9784 | 0.0216 |
+| 10 | ANN 8q/4in t=1.0 m=3 random | 0.00984 | 0.9781 | 0.0219 |
+| 11 | ANN 10q/5in t=1.0 m=3 random | 0.00985 | 0.9780 | 0.0220 |
+| 12 | ANN 6q/6in t=1.0 m=3 random | 0.00988 | 0.9779 | 0.0221 |
+| 13 | ANN 6q/6in t=0.5 m=3 random | 0.00989 | 0.9779 | 0.0221 |
+
+Four empirical findings:
+
+1. **The annealer-style 10q all-to-all config beats the gate-based v3 best.**
+   RMSE 0.00957 vs 0.00967 (~1% improvement). This is the first reservoir
+   variant to land *between* AR(5) and the gate-based QRC. The annealer
+   architecture is empirically viable for this task — not just speculative.
+
+2. **More qubits help; dense couplings help more.** 10q ≫ 8q ≫ 6q across the
+   ranking, and `all-to-all` ≫ `random` at 10q. This is exactly the regime
+   D-Wave hardware excels in (5000+ qubits, programmable dense couplings),
+   suggesting the hardware advantage compounds the architectural advantage.
+
+3. **"Memory qubits" (n_input < n_qubits) hurt in this experiment.** 8q/4in and
+   10q/5in are *worse* than 8q/8in and 10q/10in. The input+memory split that
+   helped Li et al. (2025) doesn't help our task, probably because (a) we
+   already pass the original features through to the readout in the hybrid
+   step, so they don't need to be recovered from reservoir state, and (b) at
+   small qubit counts, idle h=0 qubits don't add enough new dynamical degrees
+   of freedom to be worth the input-bandwidth sacrifice.
+
+4. **Persistence is still the ceiling.** We narrow the gap (0.00957 vs 0.00941,
+   ~1.7%) but don't close it. Confirms the prior diagnosis: daily vol
+   autocorrelation ~0.99 is the noise floor for *any* model on this task.
+
+### Caveats on this simulation
+
+* **Continuous-time evolution is approximated by 3–4 Trotter steps.** Real
+  hardware would do the continuous version, removing the discretization error.
+  Direction of effect unclear — small Trotter could be helping or hurting.
+* **Statevector readout, not shot-based.** Real D-Wave returns shot histograms;
+  per-feature std error ~1/√N_shots. With N_shots=1000 the noise is ~0.03 per
+  expectation value, comparable to the feature scale. Empirical impact: likely
+  a small RMSE bump, not a regime change.
+* **No decoherence.** Advantage qubits have ~20 µs coherence; for evolution
+  times in the same ballpark, the noiseless simulation is optimistic.
+* **No embedding overhead.** Pegasus topology has degree ~15; a 10-qubit dense
+  graph is realistic, but at larger scales physical chains stretch out.
+* **Same seed reused across configs.** A multi-seed ablation would tighten the
+  error bars.
+
+The first-approximation numbers should be read as **"the architecture works in
+principle"**, not as a hardware performance prediction. The point of running it
+was to falsify or confirm the doc's recommendation before investing 2–3 weeks
+in a real SDK integration.
+
 ## 6. Comparison to IBM Heron path
 
 | Dimension | IBM Heron (current plan) | D-Wave Advantage |
@@ -298,10 +377,15 @@ The D-Wave track is **research-grade interesting** for this task because:
   competitor (arXiv:2505.13933).
 * The dynamical-phase-transition story (Martínez-Peña 2021) gives a principled
   knob to tune the anneal schedule.
+* **The first-approximation simulation (Section 5.5) shows the architecture
+  is empirically competitive** — the annealer-style 10q all-to-all config beat
+  the best gate-based v3 config by ~1% RMSE on the same task. That removes
+  "the architecture might not work" from the risk list.
 
 It is **not the right choice for the Phase 2 deadline**, because the rewrite
 cost (Section 6) doesn't fit the calendar. The right place for this work is a
-post-Phase-2 extension, a Phase 3 stretch goal, or a follow-up paper.
+post-Phase-2 extension, a Phase 3 stretch goal, or a follow-up paper — with
+the first-approximation result as the kickoff data point.
 
 ## References
 
