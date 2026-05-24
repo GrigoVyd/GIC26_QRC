@@ -61,6 +61,11 @@ class AnnealerReservoir:
     connectivity    : "linear" / "random" / "all-to-all" — graph of J_ij.
     density         : edge fraction used when connectivity="random".
     h_memory_scale  : magnitude of random h_i on memory qubits.
+    input_scale     : multiplier applied to data-driven h_i. Probes the
+                      dynamical regime: small => transverse-field dominates;
+                      large => problem Hamiltonian dominates. The interesting
+                      "edge of chaos" lies near input_scale ~ 1 (Martinez-Pena
+                      et al. 2021).
     seed            : RNG seed for J_ij and memory-qubit biases.
     """
 
@@ -73,6 +78,7 @@ class AnnealerReservoir:
         connectivity: Literal["linear", "random", "all-to-all"] = "random",
         density: float = 0.4,
         h_memory_scale: float = 0.5,
+        input_scale: float = 1.0,
         seed: int = 42,
     ) -> None:
         self.n_qubits = n_qubits
@@ -84,6 +90,7 @@ class AnnealerReservoir:
         self.connectivity = connectivity
         self.density = density
         self.h_memory_scale = float(h_memory_scale)
+        self.input_scale = float(input_scale)
         self.seed = seed
 
         rng = np.random.RandomState(seed)
@@ -118,7 +125,7 @@ class AnnealerReservoir:
         """Combine data-driven h_i (first n_input qubits) and fixed memory biases."""
         h = np.zeros(self.n_qubits, dtype=float)
         for i in range(self.n_input):
-            h[i] = float(x[i % len(x)])
+            h[i] = self.input_scale * float(x[i % len(x)])
         if self._h_memory.size > 0:
             h[self.n_input:] = self._h_memory
         return h
@@ -183,5 +190,6 @@ class AnnealerReservoir:
         return (
             f"AnnealerReservoir(n_qubits={self.n_qubits}, n_input={self.n_input}, "
             f"t={self.evolution_time}, m={self.trotter_steps}, "
+            f"input_scale={self.input_scale}, "
             f"conn='{self.connectivity}', n_features={self.n_features})"
         )
