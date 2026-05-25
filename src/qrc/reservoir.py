@@ -100,13 +100,24 @@ class QuantumReservoir:
         seed: int = 42,
         noise_model: Optional[NoiseModel] = None,
         n_shots: int = 2048,
+        recurrent: bool = False,
+        memory_scale: float = 0.5,
     ) -> None:
+        """
+        recurrent      : if True, the previous sample's Z expectations are fed back as
+                         an additional Ry encoding on each qubit. Use
+                         ``transform_sequential`` to drive the reservoir with this memory.
+        memory_scale   : multiplier on the previous-step Z values when used as feedback
+                         angle (Ry(memory_scale * π * z_prev[i])). Tunable [0, 1].
+        """
         self.n_qubits = n_qubits
         self.n_layers = n_layers
         self.connectivity = connectivity
         self.seed = seed
         self.noise_model = noise_model
         self.n_shots = n_shots
+        self.recurrent = recurrent
+        self.memory_scale = memory_scale
 
         rng = np.random.RandomState(seed)
         self._edges = self._build_edges(rng)
@@ -135,12 +146,20 @@ class QuantumReservoir:
     # Circuit builder
     # ------------------------------------------------------------------
 
-    def _build_circuit(self, x: np.ndarray, add_measurement: bool = False) -> QuantumCircuit:
+    def _build_circuit(
+        self,
+        x: np.ndarray,
+        add_measurement: bool = False,
+        z_prev: Optional[np.ndarray] = None,
+    ) -> QuantumCircuit:
         """
         Build the QRC circuit for input vector x.
 
         x is assumed to be already normalised to [-1, 1].
-        Each qubit i is angle-encoded with x[i % len(x)].
+        Each qubit i is angle-encoded with x[i % len(x)] via Rx.
+        If z_prev is provided (recurrent mode), each qubit i additionally gets an
+        Ry(memory_scale * π * z_prev[i]) encoding before the Ising layer — this
+        introduces classical-feedback memory across time steps.
         """
         n = self.n_qubits
         qc = QuantumCircuit(n)
@@ -153,6 +172,8 @@ class QuantumReservoir:
             # ---- angle encoding ----
             for i in range(n):
                 qc.rx(float(x[i % len(x)]) * np.pi, i)
+                if z_prev is not None:
+                    qc.ry(float(z_prev[i % len(z_prev)]) * self.memory_scale * np.pi, i)
 
             # ---- ZZ Ising couplings ----
             for k, (qi, qj) in enumerate(self._edges):
@@ -176,13 +197,13 @@ class QuantumReservoir:
     # Feature extraction
     # ------------------------------------------------------------------
 
-    def _features_noiseless(self, x: np.ndarray) -> np.ndarray:
-        qc = self._build_circuit(x, add_measurement=False)
+    def _features_noiseless(self, x: np.ndarray, z_prev: Optional[np.ndarray] = None) -> np.ndarray:
+        qc = self._build_circuit(x, add_measurement=False, z_prev=z_prev)
         sv = Statevector(qc)
         return _observables_from_sv(sv, self.n_qubits)
 
-    def _features_noisy(self, x: np.ndarray, backend: AerSimulator) -> np.ndarray:
-        qc = self._build_circuit(x, add_measurement=True)
+    def _features_noisy(self, x: np.ndarray, backend: AerSimulator, z_prev: Optional[np.ndarray] = None) -> np.ndarray:
+        qc = self._build_circuit(x, add_measurement=True, z_prev=z_prev)
         job = backend.run(
             transpile(qc, backend),
             shots=self.n_shots,
@@ -203,7 +224,7 @@ class QuantumReservoir:
 
     def transform(self, X: np.ndarray) -> np.ndarray:
         """
-        Map input matrix X → reservoir feature matrix.
+        Map input matrix X → reservoir feature matrix (stateless / parallel-friendly).
 
         Parameters
         ----------
@@ -220,6 +241,48 @@ class QuantumReservoir:
             return np.array([self._features_noisy(x, backend) for x in X_norm])
 
         return np.array([self._features_noiseless(x) for x in X_norm])
+
+    def transform_sequential(
+        self,
+        X: np.ndarray,
+        initial_z: Optional[np.ndarray] = None,
+        return_final_z: bool = False,
+    ):
+        """
+        Recurrent feature extraction with classical Z-feedback across samples.
+
+        At sample t, the previous step's <Z> expectations are fed back as Ry
+        angles into the encoding (see ``_build_circuit``). Useful for time-series
+        data where reservoir state should carry information across time steps.
+
+        Parameters
+        ----------
+        X            : (T, n_input_features) — sequential input, will be tanh-normalised.
+        initial_z    : (n_qubits,) — initial Z values; zeros if None.
+        return_final_z : if True, also return the final Z vector (use to warm-start test).
+
+        Returns
+        -------
+        R : (T, n_reservoir_features)
+        [optionally] z_final : (n_qubits,)
+        """
+        X_norm = np.tanh(X)
+        z = np.zeros(self.n_qubits) if initial_z is None else initial_z.copy()
+        backend = AerSimulator() if self.noise_model is not None else None
+
+        feats = []
+        for x in X_norm:
+            if backend is not None:
+                f = self._features_noisy(x, backend, z_prev=z)
+            else:
+                f = self._features_noiseless(x, z_prev=z)
+            feats.append(f)
+            z = f[: self.n_qubits].copy()  # first n entries are <Z_i>
+
+        R = np.array(feats)
+        if return_final_z:
+            return R, z
+        return R
 
     # sklearn-compatible alias
     def fit_transform(self, X: np.ndarray, y=None) -> np.ndarray:
