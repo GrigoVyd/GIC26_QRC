@@ -133,6 +133,8 @@ def load_financial_data_v2(
     include_log_har: bool = False,
     include_return_features: bool = True,
     residual_target: bool = False,
+    include_garch_proxy: bool = False,
+    garch_residual_target: bool = False,
 ) -> Dict[str, Any]:
     """
     SPY next-day realized-vol forecast with stronger conditioning information.
@@ -190,9 +192,22 @@ def load_financial_data_v2(
     min_tau = max(delay, vol_window + (21 if include_har else 0))
     max_tau = len(log_ret_full)  # exclusive
 
+    # GARCH proxy series (if requested). Fit GARCH(1,1) on training-portion
+    # returns only; roll forward through the full series. The proxy is RV-scale.
+    # We approximate "training-portion" as the first (1 - test_size) fraction of
+    # log_ret_full so the GARCH fit never sees test-period information.
+    garch_proxy: Optional[np.ndarray] = None
+    if include_garch_proxy or garch_residual_target:
+        from src.baselines.garch import GARCHBaseline
+        n_train_returns_garch = int(len(log_ret_full) * (1.0 - test_size))
+        _, garch_proxy = GARCHBaseline.fit_proxy_series(
+            log_ret_full, n_train_returns_garch, vol_window=vol_window
+        )
+
     rows = []
     targets = []
     persistence = []
+    garch_proxy_per_sample: list[float] = []
     for tau in range(min_tau, max_tau):
         feats = []
 
@@ -214,9 +229,17 @@ def load_financial_data_v2(
             log_rv_w22 = np.mean(np.log(rv_full[tau - 22 : tau] + 1e-10))
             feats.append(np.array([log_rv_prev, log_rv_w5, log_rv_w22]))
 
+        if include_garch_proxy:
+            # GARCH-proxy RV forecast for THIS sample's target index
+            # (index `tau` in log_ret_full)
+            gp = float(garch_proxy[tau]) if garch_proxy is not None else 0.0
+            feats.append(np.array([gp, np.log(gp + 1e-10)]))
+
         rows.append(np.concatenate(feats))
         targets.append(rv_full[tau])
         persistence.append(rv_full[tau - 1])
+        if garch_proxy is not None:
+            garch_proxy_per_sample.append(float(garch_proxy[tau]))
 
     X = np.array(rows)
     y_raw = np.array(targets)
@@ -232,13 +255,30 @@ def load_financial_data_v2(
         feature_names += ["har_rv_d", "har_rv_w", "har_rv_m"]
     if include_log_har:
         feature_names += ["log_har_rv_d", "log_har_rv_w", "log_har_rv_m"]
+    if include_garch_proxy:
+        feature_names += ["garch_proxy_rv", "log_garch_proxy_rv"]
+
+    # Sample-aligned GARCH proxy series (one value per row in X) — used as the
+    # baseline for the residual-against-GARCH target option.
+    if garch_proxy_per_sample:
+        garch_proxy_arr = np.asarray(garch_proxy_per_sample, dtype=float)
+    else:
+        garch_proxy_arr = np.full(len(rows), np.nan)
+    log_garch_proxy_arr = np.log(garch_proxy_arr + 1e-10)
 
     # Target choice
-    #   residual_target=True  →  y = log(RV[t]) - log(RV[t-1])  (forces log_target=True semantics)
-    #   log_target=True       →  y = log(RV[t])
-    #   else                  →  y = RV[t]
+    #   residual_target=True        →  y = log(RV[t]) - log(RV[t-1])  (against Persistence)
+    #   garch_residual_target=True  →  y = log(RV[t]) - log(RV_garch_proxy[t])
+    #   log_target=True             →  y = log(RV[t])
+    #   else                        →  y = RV[t]
+    # garch_residual_target takes precedence over residual_target / log_target.
     log_pers = np.log(pers + 1e-10)
-    if residual_target:
+    if garch_residual_target:
+        if not include_garch_proxy and garch_proxy is None:
+            raise ValueError("garch_residual_target requires GARCH proxy; pass include_garch_proxy=True.")
+        y = np.log(y_raw + 1e-10) - log_garch_proxy_arr
+        transform_label = "residual_log_garch"
+    elif residual_target:
         y = np.log(y_raw + 1e-10) - log_pers
         transform_label = "residual_log"
     elif log_target:
@@ -251,6 +291,14 @@ def load_financial_data_v2(
     n_test = max(1, int(len(X) * test_size))
     n_train = len(X) - n_test
 
+    # Index in `log_ret_full` of the first test sample's "target return": the
+    # last return inside the 21-day rolling window that defines y_test[0]. For
+    # sample k in our design matrix, tau = min_tau + k, and y[k] = rv_full[tau],
+    # which uses log_ret_full[tau - vol_window + 1 : tau + 1]. So the
+    # "next-day return" being forecast for test sample 0 lives at index
+    # (min_tau + n_train) in log_ret_full.
+    test_first_ret_idx = min_tau + n_train
+
     return {
         "X_train": X[:n_train],
         "X_test": X[n_train:],
@@ -262,8 +310,18 @@ def load_financial_data_v2(
         "persistence_test": pers[n_train:],
         "log_persistence_train": log_pers[:n_train],
         "log_persistence_test": log_pers[n_train:],
+        "garch_proxy_train": garch_proxy_arr[:n_train],
+        "garch_proxy_test": garch_proxy_arr[n_train:],
+        "log_garch_proxy_train": log_garch_proxy_arr[:n_train],
+        "log_garch_proxy_test": log_garch_proxy_arr[n_train:],
         "target_transform": transform_label,
         "feature_names": feature_names,
+        # Full log-return series and the test-set boundary in that series.
+        # Required by GARCHBaseline.set_returns(). The train portion contains
+        # returns from index 0 up to test_first_ret_idx (exclusive).
+        "log_returns_full": log_ret_full,
+        "test_first_ret_idx": test_first_ret_idx,
+        "vol_window": vol_window,
     }
 
 
@@ -284,16 +342,18 @@ def invert_target(
     y_transformed: np.ndarray,
     target_transform: Optional[str],
     log_persistence: Optional[np.ndarray] = None,
+    log_garch_proxy: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Invert the target transform so metrics can be computed on the natural vol scale.
 
     Modes:
-      • None            — y already on vol scale
-      • "log"           — y is log(RV);          vol = exp(y)
-      • "residual_log"  — y is log(RV[t]) - log(RV[t-1]);
-                          vol = exp(log_persistence + y) = RV[t-1] * exp(y)
-                          (requires log_persistence aligned to the same samples)
+      • None                  — y already on vol scale
+      • "log"                 — y is log(RV);  vol = exp(y)
+      • "residual_log"        — y is log(RV[t]) - log(RV[t-1]);
+                                 vol = RV[t-1] * exp(y)
+      • "residual_log_garch"  — y is log(RV[t]) - log(RV_garch_proxy[t]);
+                                 vol = RV_garch_proxy[t] * exp(y)
     """
     if target_transform == "log":
         return np.exp(y_transformed)
@@ -301,4 +361,8 @@ def invert_target(
         if log_persistence is None:
             raise ValueError("residual_log inversion requires log_persistence array.")
         return np.exp(log_persistence + y_transformed)
+    if target_transform == "residual_log_garch":
+        if log_garch_proxy is None:
+            raise ValueError("residual_log_garch inversion requires log_garch_proxy array.")
+        return np.exp(log_garch_proxy + y_transformed)
     return y_transformed

@@ -180,7 +180,16 @@ class ARBaseline:
 # ---------------------------------------------------------------------------
 
 def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
-    """Return RMSE, MAE, R², and NMSE (normalized mean squared error)."""
+    """
+    Return RMSE, MAE, R^2, NMSE, and QLIKE.
+
+    QLIKE (Patton 2011) is the canonical volatility-forecasting loss:
+        QLIKE = mean( y_true / y_pred  -  log(y_true / y_pred)  -  1 )
+    where y_true, y_pred are positive *variance*-scale (we apply it to vol
+    using the standard convention y^2). Asymmetric: penalises under-prediction
+    of volatility more than over-prediction, which is what risk managers want.
+    Lower is better; 0 corresponds to a perfect forecast.
+    """
     residuals = y_true - y_pred
     mse = np.mean(residuals ** 2)
     rmse = np.sqrt(mse)
@@ -188,12 +197,73 @@ def regression_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     var_y = np.var(y_true) + 1e-12
     r2 = 1.0 - mse / var_y
     nmse = mse / var_y
-    return {"RMSE": rmse, "MAE": mae, "R2": r2, "NMSE": nmse}
+
+    # QLIKE on variance scale (squared vol); clip to avoid div-by-zero / log(0)
+    y_t = np.clip(y_true ** 2, 1e-12, None)
+    y_p = np.clip(y_pred ** 2, 1e-12, None)
+    ratio = y_t / y_p
+    qlike = float(np.mean(ratio - np.log(ratio) - 1.0))
+
+    return {"RMSE": rmse, "MAE": mae, "R2": r2, "NMSE": nmse, "QLIKE": qlike}
+
+
+def mincer_zarnowitz(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
+    """
+    Mincer-Zarnowitz regression: y_true = a + b * y_pred + eps.
+
+    Reports:
+      mz_intercept  — a, should be 0 if forecast is unbiased
+      mz_slope      — b, should be 1 if forecast is efficient
+      mz_r2         — explained variance of the regression
+      mz_pvalue     — Wald joint test p-value for (a=0, b=1); higher is better
+                       (do NOT reject the null that the forecast is unbiased+efficient)
+    """
+    from scipy import stats
+
+    x = np.asarray(y_pred, dtype=float)
+    y = np.asarray(y_true, dtype=float)
+    n = len(x)
+    X = np.column_stack([np.ones(n), x])
+
+    # OLS estimates
+    beta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    a, b = float(beta[0]), float(beta[1])
+
+    # Residuals and covariance of beta
+    resid = y - X @ beta
+    sigma2 = float(np.sum(resid ** 2) / max(n - 2, 1))
+    XtX_inv = np.linalg.inv(X.T @ X)
+    cov_beta = sigma2 * XtX_inv
+
+    # Wald joint test of H0: a=0, b=1
+    R = np.eye(2)
+    r0 = np.array([0.0, 1.0])
+    diff = R @ beta - r0
+    mid = R @ cov_beta @ R.T
+    try:
+        wald = float(diff @ np.linalg.solve(mid, diff))
+        pvalue = float(1.0 - stats.chi2.cdf(wald, df=2))
+    except np.linalg.LinAlgError:
+        pvalue = float("nan")
+
+    ss_res = float(np.sum(resid ** 2))
+    ss_tot = float(np.sum((y - y.mean()) ** 2)) + 1e-12
+    mz_r2 = 1.0 - ss_res / ss_tot
+
+    return {
+        "mz_intercept": a,
+        "mz_slope": b,
+        "mz_r2": mz_r2,
+        "mz_pvalue": pvalue,
+    }
 
 
 def print_metrics(name: str, metrics: dict) -> None:
     m = metrics
+    extra = ""
+    if "QLIKE" in m:
+        extra = f"  QLIKE={m['QLIKE']:.5f}"
     print(
         f"  {name:<35}  RMSE={m['RMSE']:.5f}  MAE={m['MAE']:.5f}"
-        f"  R2={m['R2']:.4f}  NMSE={m['NMSE']:.5f}"
+        f"  R2={m['R2']:.4f}  NMSE={m['NMSE']:.5f}{extra}"
     )
