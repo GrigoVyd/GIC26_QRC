@@ -24,5 +24,14 @@ jupyter>=1.0.0
 notebook>=7.0.0
 jupytext>=1.16.0
 
+# Phase 3 — QuEra Aquila (PRIMARY platform): neutral-atom analog reservoir.
+# Provides the local AHS simulator (free validation) and AwsDevice for Aquila.
+amazon-braket-sdk>=1.98.0
+
+# Phase 3 — gate-QPU path via qBraid (optional — preinstalled in qBraid Lab).
+# Only needed to SUBMIT gate jobs; the --dry-run and local statevector paths work without it.
+# Uncomment / install separately to run experiments/qbraid_hardware_qrc.py on a backend:
+# qbraid>=0.12.0
+
 # Optional: real weather data (fallback to Lorenz if unavailable)
 # meteostat>=1.6.0
