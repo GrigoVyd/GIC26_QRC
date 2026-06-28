@@ -42,8 +42,15 @@ from typing import Optional, Sequence
 
 import numpy as np
 from qiskit import QuantumCircuit
+from qiskit.transpiler.passes import RemoveBarriers
 
 from .reservoir import _observables_from_counts, _observables_from_sv
+
+# Qiskit's measure_all() inserts a barrier, which the qBraid QIR simulator (and
+# some other backends) reject ("barrier operations ... not supported"). Strip
+# barriers from every circuit before submission — they are only optimisation
+# hints and are irrelevant to these shallow reservoir circuits.
+_REMOVE_BARRIERS = RemoveBarriers()
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +257,7 @@ class QbraidExecutor:
 
         Raises if the target is a QPU and ``allow_qpu`` is False.
         """
-        circuits = list(circuits)
+        circuits = [_REMOVE_BARRIERS(c) for c in circuits]
         if not circuits:
             return []
 

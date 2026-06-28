@@ -143,8 +143,10 @@ def run(args) -> None:
     # ---- Local AHS reference features (free, exact) ----
     print(f"[2] Local AHS reference features (free, n_jobs={args.n_jobs}) ...")
     t0 = time.time()
-    R_tr_local = res.transform(Xtr_in, device="local", shots=args.shots, n_jobs=args.n_jobs)
-    R_te_local = res.transform(Xte_in, device="local", shots=args.shots, n_jobs=args.n_jobs)
+    # One pooled call for train+test so the worker pool starts up only once.
+    R_all = res.transform(np.vstack([Xtr_in, Xte_in]), device="local",
+                          shots=args.shots, n_jobs=args.n_jobs)
+    R_tr_local, R_te_local = R_all[:len(Xtr_in)], R_all[len(Xtr_in):]
     print(f"    done in {time.time()-t0:.1f}s  (feature dim = {R_tr_local.shape[1]})")
 
     # ---- Test features on the chosen device ----

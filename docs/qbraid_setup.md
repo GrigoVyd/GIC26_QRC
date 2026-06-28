@@ -160,5 +160,10 @@ QuEra requires a separate analog reservoir (Braket AHS / Bloqade) — see
   `--dry-run` and the local statevector reference don't. `pip install qbraid` (or
   run in Lab).
 - `PermissionError: Refusing to submit to non-simulator device` — add `--allow-qpu`.
+- `Program contains barrier operations which are not supported by the QIR simulator`
+  / `Counts data is not available` — caused by the barrier that Qiskit's
+  `measure_all()` inserts; the `qir-sv` simulator rejects it, the job fails, and no
+  counts return. `QbraidExecutor.run` now strips barriers (`RemoveBarriers`) from
+  every circuit before submission, so this is handled automatically.
 - Bitstring endianness is auto-handled: `calibrate_bit_order` compares both
   orderings against the statevector reference and picks the matching one.
