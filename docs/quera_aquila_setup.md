@@ -55,6 +55,20 @@ atoms), so keep `--max-train` modest. Output: feature fidelity, a leaderboard
 (Persistence / ESN / QuEra-sim), and `results/quera_aquila_qrc.png` (register +
 forecast + feature scatter).
 
+### Tuning (which reservoir config to run)
+
+[experiments/quera_tune.py](../experiments/quera_tune.py) sweeps atom count /
+geometry / evolution time / local-detuning strength on the local sim and ranks
+each by forecast RMSE. On a 70/25 window the **winner was `5 atoms, random2d,
+T=4 µs, local_detuning=2.5e7`** (RMSE 0.01520 / R² 0.686), beating Persistence
+(0.01569) and ESN (0.01627); almost every config beat both baselines, and 8 atoms
+gave no gain for 6× the runtime. That config is now the default for
+`quera_aquila_qrc.py`. Re-run the sweep with:
+
+```bash
+python experiments/quera_tune.py --max-train 70 --max-test 25 --shots 100
+```
+
 ## Run on real QuEra Aquila
 
 Aquila runs through **Amazon Braket**, billed to your **qBraid credits** inside

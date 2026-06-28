@@ -141,10 +141,10 @@ def run(args) -> None:
         return
 
     # ---- Local AHS reference features (free, exact) ----
-    print("[2] Local AHS reference features (free) ...")
+    print(f"[2] Local AHS reference features (free, n_jobs={args.n_jobs}) ...")
     t0 = time.time()
-    R_tr_local = res.transform(Xtr_in, device="local", shots=args.shots)
-    R_te_local = res.transform(Xte_in, device="local", shots=args.shots)
+    R_tr_local = res.transform(Xtr_in, device="local", shots=args.shots, n_jobs=args.n_jobs)
+    R_te_local = res.transform(Xte_in, device="local", shots=args.shots, n_jobs=args.n_jobs)
     print(f"    done in {time.time()-t0:.1f}s  (feature dim = {R_tr_local.shape[1]})")
 
     # ---- Test features on the chosen device ----
@@ -249,7 +249,7 @@ def _build_argparser() -> argparse.ArgumentParser:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--device", default="local", choices=["local", "aquila"],
                    help="local AHS simulator (free) or real QuEra Aquila")
-    p.add_argument("--atoms", type=int, default=6)
+    p.add_argument("--atoms", type=int, default=5)  # tuned winner (quera_tune.py): 5 atoms random2d
     p.add_argument("--geometry", default="random2d", choices=["chain", "ring", "random2d"])
     p.add_argument("--shots", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
@@ -257,6 +257,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument("--rabi-max", type=float, default=1.5e7, dest="rabi_max")
     p.add_argument("--max-test", type=int, default=60, help="recent test days on hardware (0=all)")
     p.add_argument("--max-train", type=int, default=400, help="readout train cap (local-sim cost)")
+    p.add_argument("--n-jobs", type=int, default=4, dest="n_jobs",
+                   help="local-sim parallel workers (1=serial, -1=all cores; "
+                        "auto-retries down + falls back to serial on low memory)")
     p.add_argument("--allow-qpu", action="store_true", help="REQUIRED to run on real Aquila")
     p.add_argument("--dry-run", action="store_true", help="build a program + footprint only")
     return p

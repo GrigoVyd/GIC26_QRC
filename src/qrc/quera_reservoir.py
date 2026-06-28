@@ -40,6 +40,7 @@ Validate for free on the local AHS simulator before spending QuEra credits:
 
 from __future__ import annotations
 
+import os
 import numpy as np
 from typing import Literal, Optional, Sequence
 
@@ -70,6 +71,26 @@ def _ts(times: Sequence[float], values: Sequence[float]) -> TimeSeries:
     for t, v in zip(times, values):
         ts.put(float(t), float(v))
     return ts
+
+
+# ---- Local-sim parallelism (the AHS programs are embarrassingly parallel) ----
+# Each worker process holds one reservoir + one LocalSimulator and processes a
+# slice of the inputs. This is the main free speed-up on a multi-core box; GPU
+# only helps at much larger atom counts (the 5-8 atom Hilbert space is tiny).
+_WORKER: dict = {}
+
+
+def _init_worker(reservoir, shots: int) -> None:  # pragma: no cover - subprocess
+    from braket.devices import LocalSimulator
+    _WORKER["res"] = reservoir
+    _WORKER["shots"] = shots
+    _WORKER["dev"] = LocalSimulator("braket_ahs")
+
+
+def _worker_features(x):  # pragma: no cover - subprocess
+    res, dev, shots = _WORKER["res"], _WORKER["dev"], _WORKER["shots"]
+    result = dev.run(res.build_program(x), shots=shots).result()
+    return res.features_from_measurements(result.measurements)
 
 
 class QueraReservoir:
@@ -140,9 +161,11 @@ class QueraReservoir:
         else:  # random2d — jittered grid that respects the min-spacing constraint
             cols = int(np.ceil(np.sqrt(n)))
             pts = []
+            # Jitter capped at 0.1*s so even adjacent atoms stay > 4um apart:
+            # min neighbour distance >= s - 2*0.1*s = 0.8*s (= 4.8um at s=6um).
             for i in range(n):
                 r, c = divmod(i, cols)
-                jitter = rng.uniform(-0.18, 0.18, size=2) * s
+                jitter = rng.uniform(-0.1, 0.1, size=2) * s
                 pts.append([c * s + jitter[0], r * s + jitter[1]])
             coords = np.array(pts)
 
@@ -242,7 +265,7 @@ class QueraReservoir:
     # ------------------------------------------------------------------
 
     def transform(self, X: np.ndarray, device=None, shots: int = 100,
-                  verbose: bool = False) -> np.ndarray:
+                  verbose: bool = False, n_jobs: int = 1) -> np.ndarray:
         """
         Run every sample's AHS program and return the (Z, ZZ) feature matrix.
 
@@ -250,8 +273,28 @@ class QueraReservoir:
                  (free, exact). Pass AwsDevice(Devices.QuEra.Aquila) for hardware
                  (discretised to the device grid automatically).
         shots  : measurement shots per program.
+        n_jobs : LOCAL-SIM ONLY. Parallel worker processes (the AHS programs are
+                 independent). 1 = serial; -1 = all CPU cores. Ignored on hardware
+                 (tasks are submitted serially to the QPU).
         """
+        X = np.asarray(X, dtype=float)
         local = device is None or device == "local"
+
+        # ---- parallel local-sim path ----
+        if local and n_jobs != 1 and len(X) > 1:
+            # Default cap: leave headroom. On Windows each worker re-imports the
+            # whole numpy/scipy/braket stack, so too many workers can exhaust the
+            # paging file; on Linux (e.g. qBraid Lab) fork is far cheaper and this
+            # scales much better. _parallel_features retries with fewer workers and
+            # finally falls back to serial, so it never hard-crashes.
+            workers = os.cpu_count() if n_jobs in (-1, 0) else n_jobs
+            workers = max(1, min(workers, len(X), 8))
+            feats = self._parallel_features(list(X), shots, workers, verbose)
+            if feats is not None:
+                return feats
+            # else: fall through to the serial path below
+
+        # ---- serial path (local or hardware) ----
         if local:
             from braket.devices import LocalSimulator
             dev = LocalSimulator("braket_ahs")
@@ -268,6 +311,31 @@ class QueraReservoir:
             if verbose:
                 print(f"    sample {k+1}/{len(programs)} done", flush=True)
         return np.asarray(feats)
+
+    def _parallel_features(self, X_list, shots, workers, verbose):
+        """Local-sim feature extraction across worker processes.
+
+        Returns the feature matrix, or None if the pool could not run even at 2
+        workers (caller then falls back to serial). On a BrokenProcessPool — most
+        often low memory / small Windows paging file — it retries with half the
+        workers before giving up.
+        """
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+        try:
+            if verbose:
+                print(f"    local AHS sim on {workers} worker process(es) ...", flush=True)
+            with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
+                                     initargs=(self, shots)) as pool:
+                return np.asarray(list(pool.map(_worker_features, X_list, chunksize=1)))
+        except BrokenProcessPool:
+            if workers > 2:
+                half = workers // 2
+                print(f"    [warn] worker pool broke at {workers} workers "
+                      f"(low memory?); retrying with {half}", flush=True)
+                return self._parallel_features(X_list, shots, half, verbose)
+            print("    [warn] parallel pool failed; falling back to serial", flush=True)
+            return None
 
     def fit_transform(self, X: np.ndarray, y=None) -> np.ndarray:
         return self.transform(X)
