@@ -62,9 +62,10 @@ def _make_reservoir(kind: str, n: int, seed: int):
     raise ValueError(kind)
 
 
-def _reservoir_features(res, X_in_all, shots, n_jobs, recurrent):
-    if isinstance(res, IsingReservoir):     # signed-coupling: SA sampling (num_reads=shots)
-        return res.transform(X_in_all, backend="sa", num_reads=shots)
+def _reservoir_features(res, X_in_all, shots, n_jobs, recurrent, ising_backend="sa"):
+    if isinstance(res, IsingReservoir):     # signed-coupling: SA / Toshiba / Amplify / D-Wave
+        return res.transform(X_in_all, backend=ising_backend, num_reads=shots,
+                             verbose=ising_backend != "sa")
     if recurrent and hasattr(res, "transform_sequential"):
         # sequential: state carries across samples (no parallelism)
         return res.transform_sequential(X_in_all, shots=shots)
@@ -139,7 +140,8 @@ def run(args) -> None:
             seed_i = args.seed + s_off
             res = _make_reservoir(kind, n, seed_i)
             t0 = time.time()
-            R_all = _reservoir_features(res, X_in_all, shots, args.n_jobs, args.recurrent)
+            R_all = _reservoir_features(res, X_in_all, shots, args.n_jobs, args.recurrent,
+                                        ising_backend=args.ising_backend)
             R_tr, R_te = R_all[:n_tr], R_all[n_tr:]
             ridge, sc_r, alpha = fit_readout(R_tr, X_tr_full, y_tr)
             pred = to_vol(apply_readout(ridge, sc_r, R_te, X_te_full))
@@ -205,6 +207,9 @@ if __name__ == "__main__":
     p.add_argument("--n-jobs", type=int, default=4, dest="n_jobs")
     p.add_argument("--n-seeds", type=int, default=1, dest="n_seeds",
                    help="ensemble size (Phase 2 headline used 3)")
+    p.add_argument("--ising-backend", default="sa", dest="ising_backend",
+                   choices=["sa", "amplify", "toshiba", "fujitsu", "dwave", "exact"],
+                   help="sampler for --reservoir ising_sa (cloud backends need a token)")
     p.add_argument("--recurrent", action="store_true", help="use sequential memory feedback")
     p.add_argument("--noiseless", action="store_true",
                    help="exact/infinite-shot features (Pasqal only) -- Phase 2 methodology")

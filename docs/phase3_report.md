@@ -105,7 +105,9 @@ with the *other* baselines but cannot realise this specific advantage.
 | Tier | Platform | SDK / backend | Status |
 |---|---|---|---|
 | Classical CPU | GARCH/LSTM/ESN/AR | scikit-learn, arch | ✅ done |
-| GPU Ising machine | **Fixstars Amplify AE** | `amplify` | ✅ reservoir built; cloud run ready (AMPLIFY_TOKEN) |
+| GPU Ising machine | **Fixstars Amplify AE** | `amplify` (FixstarsClient) | ✅ reservoir built; cloud run ready (AMPLIFY_TOKEN) |
+| Ising machine | **Toshiba SBM (SQBM+)** | `amplify` (ToshibaSQBM2Client) | ✅ same API as D-Wave; run ready (TOSHIBA_TOKEN) |
+| Ising machines | Fujitsu DA / Hitachi / NEC | `amplify` (one API) | ✅ reachable via the same backend |
 | Local Ising (free) | SimulatedAnnealing | `dwave.samplers` | ✅ run (0.00814) |
 | Neutral-atom QPU | **QuEra Aquila** | Braket AHS | ✅ reservoir + local AHS run; real-Aquila run ready (qBraid) |
 | Neutral-atom QPU | **Pasqal Fresnel** | Pulser | ✅ reservoir + emulator run; HW pending device availability |
@@ -126,8 +128,9 @@ GARCH-hybrid reservoir, where the simulated advantage is expected to transfer.
 | GARCH-hybrid (annealer) — beats GARCH | `python experiments/phase2_garch_hybrid.py --n-seeds 3` |
 | GARCH-hybrid on neutral atoms / Ising machine | `python experiments/neutral_atom_garch_hybrid.py --reservoir {quera,pasqal,pasqal_local,ising_sa} --atoms 10 --max-test 0 --n-seeds 3` |
 | QuEra Aquila (real HW) | `python experiments/quera_aquila_qrc.py --device aquila --allow-qpu` |
-| Ising on Fixstars Amplify (GPU) | set `AMPLIFY_TOKEN`, `IsingReservoir(...).transform(X, backend="amplify")` |
-| Ising on D-Wave (Leap) | set Leap token, `IsingReservoir(...).transform(X, backend="dwave")` |
+| Ising on Fixstars Amplify (GPU) | `AMPLIFY_TOKEN=… python experiments/neutral_atom_garch_hybrid.py --reservoir ising_sa --ising-backend amplify --atoms 10 --max-test 0 --n-seeds 3` |
+| Ising on Toshiba SBM | `TOSHIBA_TOKEN=… … --ising-backend toshiba` (same command; or fujitsu) |
+| Ising on D-Wave (Leap) | Leap token, then `… --ising-backend dwave` (or `IsingReservoir(...).transform(X, backend="dwave")`) |
 
 Reservoirs: `src/qrc/{reservoir,annealer_reservoir,quera_reservoir,pasqal_reservoir,ising_reservoir}.py`.
 Setup docs: `docs/{quera_aquila_setup,pasqal_fresnel_setup,qbraid_setup}.md`.

@@ -123,24 +123,59 @@ class IsingReservoir:
         ss = sampler.sample_ising(h, J, num_reads=num_reads, annealing_time=anneal_time)
         return ss.record.sample.astype(float), ss.record.num_occurrences.astype(float)
 
-    def _sample_amplify(self, h, J, num_reads, timeout_ms=1000, client=None):
-        # Fixstars Amplify AE (GPU Ising machine). Returns multiple solutions whose
-        # spread provides the reservoir's sampling statistics.
-        from amplify import VariableGenerator, solve, FixstarsClient
-        gen = VariableGenerator()
+    # Fixstars Amplify exposes many Ising machines behind ONE API (solve(model,
+    # client)). "amplify" -> Fixstars AE (GPU); "toshiba" -> Toshiba SQBM2 (classical
+    # SBM, GPU/FPGA); "fujitsu"/"hitachi"/"nec"/"dwave_amplify" also available. All
+    # classical (SBM/AE) machines are the same *tier* as SA -- no transverse field,
+    # so they reproduce the classical-competitive result but not the GARCH-beating
+    # edge (that needs D-Wave quantum annealing via the "dwave" backend).
+    _AMPLIFY_CLIENTS = {
+        "amplify": "FixstarsClient", "toshiba": "ToshibaSQBM2Client",
+        "fujitsu": "FujitsuDA4Client", "hitachi": "HitachiClient",
+        "nec": "NECVA2Client", "dwave_amplify": "DWaveSamplerClient",
+    }
+
+    def _make_amplify_client(self, kind: str, timeout_ms: int):
+        import amplify
+        client = getattr(amplify, self._AMPLIFY_CLIENTS[kind])()
+        # token: a kind-specific env var (e.g. TOSHIBA_TOKEN) or the Amplify token
+        token = os.environ.get(f"{kind.upper()}_TOKEN") or os.environ.get("AMPLIFY_TOKEN", "")
+        if token:
+            client.token = token
+        url = os.environ.get(f"{kind.upper()}_URL")
+        if url:
+            client.url = url
+        # timeout / multi-sample knobs differ per client; set what exists
+        p = client.parameters
+        for attr, val in (("timeout", timeout_ms), ("num_outputs", 0),
+                          ("multishot", True), ("maxout", 100)):
+            try:
+                if hasattr(p, attr):
+                    setattr(p, attr, val)
+            except Exception:
+                pass
+        return client
+
+    def _sample_amplify(self, h, J, num_reads, kind="amplify", timeout_ms=1000, client=None):
+        import amplify
+        gen = amplify.VariableGenerator()
         s = gen.array("Ising", self.n_spins)
         obj = sum(h[i] * s[i] for i in h)
         for (i, j), Jij in zip(self._edges, self._J):
             obj = obj + float(Jij) * s[i] * s[j]
         if client is None:
-            client = FixstarsClient()
-            client.token = os.environ.get("AMPLIFY_TOKEN", "")
-        client.parameters.timeout = timeout_ms
-        result = solve(obj, client)
-        rows = [[int(sol.values[s[i]]) for i in range(self.n_spins)] for sol in result]
-        sample = np.array(rows, dtype=float)
-        occ = np.ones(len(sample))
-        return sample, occ
+            client = self._make_amplify_client(kind, timeout_ms)
+        result = amplify.solve(obj, client)
+        rows = []
+        for sol in result:
+            try:
+                rows.append(np.asarray(s.evaluate(sol.values), dtype=float))
+            except Exception:
+                rows.append(np.array([float(sol.values[s[i]]) for i in range(self.n_spins)]))
+        if not rows:                                   # only the best solution returned
+            rows.append(np.asarray(s.evaluate(result.best.values), dtype=float))
+        sample = np.asarray(rows, dtype=float)
+        return sample, np.ones(len(sample))
 
     def _sample(self, x, backend, num_reads, **kw):
         h, J = self._ising(x)
@@ -150,8 +185,8 @@ class IsingReservoir:
             return self._sample_exact(h, J)
         if backend == "dwave":
             return self._sample_dwave(h, J, num_reads, **kw)
-        if backend == "amplify":
-            return self._sample_amplify(h, J, num_reads, **kw)
+        if backend in self._AMPLIFY_CLIENTS:           # amplify / toshiba / fujitsu / ...
+            return self._sample_amplify(h, J, num_reads, kind=backend, **kw)
         raise ValueError(f"unknown backend {backend}")
 
     # ---- public API ----
