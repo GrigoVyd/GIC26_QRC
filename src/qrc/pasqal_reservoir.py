@@ -161,10 +161,32 @@ class PasqalReservoir:
         zz_vals = [zz[i, j] for i in range(n) for j in range(i + 1, n)]
         return np.concatenate([z, zz_vals])
 
-    def _features_local(self, x: np.ndarray, shots: int) -> np.ndarray:
+    def _features_from_probs(self, probs: np.ndarray) -> np.ndarray:
+        """Exact (noiseless) Z, ZZ from the final-state probability vector.
+
+        Matches the Phase-2 statevector methodology (infinite-shot limit). Basis
+        index k -> qubit-i bit via qutip big-endian (qubit 0 most significant),
+        '1' = Rydberg, so it lines up with features_from_counts.
+        """
+        n = self.n_atoms
+        k = np.arange(len(probs))
+        bits = np.stack([(k >> (n - 1 - i)) & 1 for i in range(n)], axis=1).astype(float)
+        # qutip get_final_state() uses |1>=ground (opposite sign to the
+        # sample_final_state bitstring where '1'=Rydberg), so s = 2*bit-1 to make
+        # noiseless Z match the shot-based Z (verified vs 50k shots: MAE ~3e-3).
+        s = 2.0 * bits - 1.0                       # (2^n, n)
+        z = probs @ s
+        zz = (s * probs[:, None]).T @ s
+        zz_vals = [zz[i, j] for i in range(n) for j in range(i + 1, n)]
+        return np.concatenate([z, zz_vals])
+
+    def _features_local(self, x: np.ndarray, shots) -> np.ndarray:
         from pulser_simulation import QutipEmulator
         seq = self.build_sequence(x)
         res = QutipEmulator.from_sequence(seq).run()
+        if shots is None:                           # noiseless / infinite-shot
+            probs = np.abs(np.asarray(res.get_final_state().full()).ravel()) ** 2
+            return self._features_from_probs(probs)
         counts = res.sample_final_state(N_samples=shots)
         return self.features_from_counts(counts)
 

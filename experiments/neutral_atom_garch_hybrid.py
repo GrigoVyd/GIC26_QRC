@@ -76,6 +76,7 @@ def run(args) -> None:
     X_tr_full, X_te_full = d["X_train"], d["X_test"]
     y_tr = d["y_train"]
     n = args.atoms
+    shots = None if args.noiseless else args.shots   # None => exact/infinite-shot (Pasqal only)
 
     if args.max_train:
         X_tr_full = X_tr_full[-args.max_train:]; y_tr = y_tr[-args.max_train:]
@@ -86,8 +87,8 @@ def run(args) -> None:
     log_gp_te = d["log_garch_proxy_test"][sl]
     to_vol = lambda y: invert_target(y, "residual_log_garch", log_garch_proxy=log_gp_te)
 
-    print(f"\nWindow: {len(X_tr_full)} train / {n_te} test  |  atoms={n}  shots={args.shots}"
-          f"  recurrent={args.recurrent}\n")
+    print(f"\nWindow: {len(X_tr_full)} train / {n_te} test  |  atoms={n}  "
+          f"shots={'noiseless' if shots is None else shots}  recurrent={args.recurrent}\n")
 
     rows = []
     preds = {}
@@ -116,13 +117,16 @@ def run(args) -> None:
                           sc_in.transform(X_te_full[:, :n])])
 
     kinds = ["quera", "pasqal"] if args.reservoir == "both" else [args.reservoir]
+    if shots is None and "quera" in kinds:
+        print("  [note] --noiseless is Pasqal-only (QuEra AHS sim is shot-based); skipping QuEra.")
+        kinds = [k for k in kinds if k != "quera"]
     labels = {"quera": "QuEra Aquila", "pasqal": "Pasqal Fresnel"}
     for kind in kinds:
         res = _make_reservoir(kind, n, args.seed)
-        tag = labels[kind] + (" +recurrent" if args.recurrent else "")
+        tag = labels[kind] + (" +recurrent" if args.recurrent else "") + (" [noiseless]" if shots is None else "")
         print(f"\n  [{tag}] {res}")
         t0 = time.time()
-        R_all = _reservoir_features(res, X_in_all, args.shots, args.n_jobs, args.recurrent)
+        R_all = _reservoir_features(res, X_in_all, shots, args.n_jobs, args.recurrent)
         print(f"    features in {time.time()-t0:.1f}s")
         R_tr, R_te = R_all[:n_tr], R_all[n_tr:]
         ridge, sc_r, alpha = fit_readout(R_tr, X_tr_full, y_tr)
@@ -181,4 +185,6 @@ if __name__ == "__main__":
     p.add_argument("--max-test", type=int, default=250)
     p.add_argument("--n-jobs", type=int, default=4, dest="n_jobs")
     p.add_argument("--recurrent", action="store_true", help="use sequential memory feedback")
+    p.add_argument("--noiseless", action="store_true",
+                   help="exact/infinite-shot features (Pasqal only) -- Phase 2 methodology")
     run(p.parse_args())
