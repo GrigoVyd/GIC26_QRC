@@ -37,6 +37,7 @@ from sklearn.preprocessing import StandardScaler
 
 from src.qrc.quera_reservoir import QueraReservoir
 from src.qrc.pasqal_reservoir import PasqalReservoir
+from src.qrc.ising_reservoir import IsingReservoir
 from src.data.loaders import load_financial_data_v2, invert_target
 from src.baselines.classical import RidgeBaseline, regression_metrics, print_metrics
 from src.baselines.garch import GARCHBaseline
@@ -54,10 +55,16 @@ def _make_reservoir(kind: str, n: int, seed: int):
         return PasqalReservoir(n_atoms=n, geometry="random2d", seed=seed, encoding="global")
     if kind == "pasqal_local":  # MockDevice + DMM: per-site local detuning (QuEra-like)
         return PasqalReservoir(n_atoms=n, geometry="random2d", seed=seed, encoding="local")
+    if kind == "ising_sa":  # signed-coupling Ising machine (D-Wave/Amplify substrate), SA backend
+        # tuned (ising_tune.py): input_scale=1.0, beta=1.0 beats GARCH on the window
+        return IsingReservoir(n_spins=n, connectivity="all-to-all", input_scale=1.0,
+                              beta=1.0, seed=seed)
     raise ValueError(kind)
 
 
 def _reservoir_features(res, X_in_all, shots, n_jobs, recurrent):
+    if isinstance(res, IsingReservoir):     # signed-coupling: SA sampling (num_reads=shots)
+        return res.transform(X_in_all, backend="sa", num_reads=shots)
     if recurrent and hasattr(res, "transform_sequential"):
         # sequential: state carries across samples (no parallelism)
         return res.transform_sequential(X_in_all, shots=shots)
@@ -123,7 +130,8 @@ def run(args) -> None:
         print("  [note] --noiseless is Pasqal-only (QuEra AHS sim is shot-based); skipping QuEra.")
         kinds = [k for k in kinds if k != "quera"]
     labels = {"quera": "QuEra Aquila", "pasqal": "Pasqal Fresnel (global)",
-              "pasqal_local": "Per-site local-detuning (MockDevice)"}
+              "pasqal_local": "Per-site local-detuning (MockDevice)",
+              "ising_sa": "Ising machine signed-J (SA)"}
     for kind in kinds:
         base = labels[kind] + (" +recurrent" if args.recurrent else "") + (" [noiseless]" if shots is None else "")
         seed_preds = []
@@ -188,7 +196,7 @@ def _plot(df, garch_rmse):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--reservoir", default="both",
-                   choices=["quera", "pasqal", "pasqal_local", "both"])
+                   choices=["quera", "pasqal", "pasqal_local", "ising_sa", "both"])
     p.add_argument("--atoms", type=int, default=5)
     p.add_argument("--shots", type=int, default=200)
     p.add_argument("--seed", type=int, default=42)
