@@ -337,6 +337,35 @@ class QueraReservoir:
             print("    [warn] parallel pool failed; falling back to serial", flush=True)
             return None
 
+    def transform_sequential(self, X: np.ndarray, shots: int = 100,
+                             feedback_scale: float = 0.5) -> np.ndarray:
+        """
+        Recurrent feature extraction with per-site Z feedback (memory across days).
+
+        At step t the previous step's <Z_i> are blended into the local-detuning
+        weights, so the reservoir carries information forward in time (the analog
+        of an echo-state reservoir). Sequential by construction -> not parallel.
+        """
+        from braket.devices import LocalSimulator
+        dev = LocalSimulator("braket_ahs")
+        X = np.asarray(X, dtype=float)
+        z = np.zeros(self.n_atoms)
+        feats = []
+        for x in X:
+            weights = self._encode_recurrent(x, z, feedback_scale)
+            H = self._drive() + self._local_detuning(weights)
+            prog = AnalogHamiltonianSimulation(register=self.register(), hamiltonian=H)
+            f = self.features_from_measurements(dev.run(prog, shots=shots).result().measurements)
+            feats.append(f)
+            z = f[: self.n_atoms].copy()       # first n features are <Z_i>
+        return np.asarray(feats)
+
+    def _encode_recurrent(self, x, z_prev, fb):
+        xn = np.tanh(np.asarray(x, dtype=float))
+        per = np.array([xn[i % len(xn)] for i in range(self.n_atoms)])
+        combined = np.clip(per + fb * np.asarray(z_prev), -1.0, 1.0)
+        return (combined + 1.0) / 2.0
+
     def fit_transform(self, X: np.ndarray, y=None) -> np.ndarray:
         return self.transform(X)
 

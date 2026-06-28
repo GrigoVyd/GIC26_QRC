@@ -209,6 +209,39 @@ class PasqalReservoir:
             print("    [warn] parallel pool failed; falling back to serial", flush=True)
             return None
 
+    def transform_sequential(self, X: np.ndarray, shots: int = 200,
+                             feedback_scale: float = 0.5) -> np.ndarray:
+        """
+        Recurrent feature extraction with temporal Z feedback (memory across days).
+
+        Fresnel is global-only, so per-site feedback is impossible; instead the
+        previous step's <Z_i> are *replayed* as leading points of the global
+        detuning waveform before the new input — injecting memory temporally.
+        Sequential by construction -> not parallel.
+        """
+        from pulser_simulation import QutipEmulator
+        X = np.asarray(X, dtype=float)
+        z = np.zeros(self.n_atoms)
+        feats = []
+        for x in X:
+            seq = self._build_sequence_recurrent(x, z, feedback_scale)
+            counts = QutipEmulator.from_sequence(seq).run().sample_final_state(N_samples=shots)
+            f = self.features_from_counts(counts)
+            feats.append(f)
+            z = f[: self.n_atoms].copy()
+        return np.asarray(feats)
+
+    def _build_sequence_recurrent(self, x, z_prev, fb) -> Sequence:
+        seq = Sequence(self.register(), AnalogDevice)
+        seq.declare_channel("ryd", "rydberg_global")
+        T = self.total_time
+        amp = InterpolatedWaveform(T, [0.0, self.rabi, self.rabi, 0.0])
+        xn = np.clip(np.tanh(np.asarray(x, dtype=float)), -1, 1) * self.det_scale
+        zf = np.clip(fb * np.asarray(z_prev), -1, 1) * self.det_scale
+        det = InterpolatedWaveform(T, [0.0, *zf, *xn, 0.0])  # replay memory, then input
+        seq.add(Pulse(amp, det, 0.0), "ryd")
+        return seq
+
     def fit_transform(self, X: np.ndarray, y=None) -> np.ndarray:
         return self.transform(X)
 
