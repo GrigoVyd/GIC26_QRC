@@ -33,6 +33,13 @@ amazon-braket-sdk>=1.98.0
 pulser>=1.8.0
 pulser-simulation>=1.8.0
 
+# Phase 3 — Ising-machine reservoir (signed couplings: D-Wave / Fixstars Amplify).
+# dwave-ocean-sdk gives the local SimulatedAnnealingSampler (free validation) + the
+# D-Wave Advantage quantum annealer (Leap). amplify is the Fixstars Amplify SDK
+# (GPU Ising machine, cloud; needs AMPLIFY_TOKEN). Only the SA path is needed offline.
+dwave-ocean-sdk>=8.0.0
+amplify>=1.6.0
+
 # Phase 3 — gate-QPU path via qBraid (optional — preinstalled in qBraid Lab).
 # Only needed to SUBMIT gate jobs; the --dry-run and local statevector paths work without it.
 # Uncomment / install separately to run experiments/qbraid_hardware_qrc.py on a backend:
