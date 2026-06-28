@@ -29,7 +29,7 @@ from typing import Literal, Sequence as Seq
 
 from pulser import Register, Sequence, Pulse
 from pulser.waveforms import InterpolatedWaveform
-from pulser.devices import AnalogDevice
+from pulser.devices import AnalogDevice, MockDevice
 
 
 # ---- Pasqal AnalogDevice (Fresnel) limits, read from the device spec ----
@@ -79,6 +79,7 @@ class PasqalReservoir:
         rabi_frac: float = 0.8,
         detuning_frac: float = 0.6,
         seed: int = 42,
+        encoding: Literal["global", "local"] = "global",
     ) -> None:
         if n_atoms > FRESNEL_MAX_ATOMS:
             raise ValueError(f"n_atoms {n_atoms} > Fresnel max {FRESNEL_MAX_ATOMS}")
@@ -91,6 +92,12 @@ class PasqalReservoir:
         self.rabi = rabi_frac * FRESNEL_MAX_AMP
         self.det_scale = detuning_frac * FRESNEL_MAX_DETUNING
         self.seed = seed
+        # "global": real Fresnel (AnalogDevice, global detuning -> temporal encoding).
+        # "local": MockDevice with a DMM (per-site local detuning -> spatial encoding,
+        #   the analog of QuEra's local detuning / the annealer's per-qubit h_i).
+        #   Not a real device, but it tests the per-site-encoding hypothesis fast.
+        self.encoding = encoding
+        self._device = MockDevice if encoding == "local" else AnalogDevice
         self._coords = self._build_coords(np.random.RandomState(seed))
 
     # ---- geometry (fixed disordered couplings) ----
@@ -128,15 +135,34 @@ class PasqalReservoir:
 
     # ---- program construction ----
     def build_sequence(self, x: np.ndarray) -> Sequence:
-        """Global Rabi pulse + input-encoding global detuning waveform."""
-        seq = Sequence(self.register(), AnalogDevice)
+        """Global Rabi pulse; input via global detuning (encoding='global') or a
+        per-site DMM local detuning (encoding='local')."""
+        reg = self.register()
+        seq = Sequence(reg, self._device)
         seq.declare_channel("ryd", "rydberg_global")
         T = self.total_time
         amp = InterpolatedWaveform(T, [0.0, self.rabi, self.rabi, 0.0])
-        dvals = np.clip(np.tanh(np.asarray(x, dtype=float)), -1, 1) * self.det_scale
-        det = InterpolatedWaveform(T, [0.0, *dvals, 0.0])
-        seq.add(Pulse(amp, det, 0.0), "ryd")
+
+        if self.encoding == "global":
+            dvals = np.clip(np.tanh(np.asarray(x, dtype=float)), -1, 1) * self.det_scale
+            det = InterpolatedWaveform(T, [0.0, *dvals, 0.0])
+            seq.add(Pulse(amp, det, 0.0), "ryd")
+            return seq
+
+        # local: per-site DMM. weights w_i in [eps,1] set the spatial pattern; the
+        # DMM waveform is <=0 so site i sees detuning -w_i * det_scale (input).
+        w = self._encode_weights(x)
+        dmap = reg.define_detuning_map({f"q{i}": float(w[i]) for i in range(self.n_atoms)})
+        seq.config_detuning_map(dmap, "dmm_0")
+        seq.add(Pulse(amp, InterpolatedWaveform(T, [0.0, 0.0, 0.0, 0.0]), 0.0), "ryd")
+        seq.add_dmm_detuning(
+            InterpolatedWaveform(T, [0.0, -self.det_scale, -self.det_scale, 0.0]), "dmm_0")
         return seq
+
+    def _encode_weights(self, x: np.ndarray) -> np.ndarray:
+        xn = np.tanh(np.asarray(x, dtype=float))
+        per = np.array([xn[i % len(xn)] for i in range(self.n_atoms)])
+        return np.clip((per + 1.0) / 2.0, 1e-3, 1.0)     # DMM weights >= 0
 
     # ---- feature extraction (Z, ZZ) from sampled bitstrings ----
     @property
@@ -269,5 +295,5 @@ class PasqalReservoir:
 
     def __repr__(self) -> str:
         return (f"PasqalReservoir(n_atoms={self.n_atoms}, geometry='{self.geometry}', "
-                f"spacing={self.spacing}um, T={self.total_time}ns, "
+                f"encoding='{self.encoding}', spacing={self.spacing}um, T={self.total_time}ns, "
                 f"rabi={self.rabi:.2f}rad/us, n_features={self.n_features})")

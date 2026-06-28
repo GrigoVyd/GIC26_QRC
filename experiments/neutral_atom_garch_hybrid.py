@@ -50,8 +50,10 @@ warnings.filterwarnings("ignore")
 def _make_reservoir(kind: str, n: int, seed: int):
     if kind == "quera":
         return QueraReservoir(n_atoms=n, geometry="random2d", seed=seed)
-    if kind == "pasqal":
-        return PasqalReservoir(n_atoms=n, geometry="random2d", seed=seed)
+    if kind == "pasqal":  # real Fresnel: global-only detuning encoding
+        return PasqalReservoir(n_atoms=n, geometry="random2d", seed=seed, encoding="global")
+    if kind == "pasqal_local":  # MockDevice + DMM: per-site local detuning (QuEra-like)
+        return PasqalReservoir(n_atoms=n, geometry="random2d", seed=seed, encoding="local")
     raise ValueError(kind)
 
 
@@ -120,7 +122,8 @@ def run(args) -> None:
     if shots is None and "quera" in kinds:
         print("  [note] --noiseless is Pasqal-only (QuEra AHS sim is shot-based); skipping QuEra.")
         kinds = [k for k in kinds if k != "quera"]
-    labels = {"quera": "QuEra Aquila", "pasqal": "Pasqal Fresnel"}
+    labels = {"quera": "QuEra Aquila", "pasqal": "Pasqal Fresnel (global)",
+              "pasqal_local": "Per-site local-detuning (MockDevice)"}
     for kind in kinds:
         base = labels[kind] + (" +recurrent" if args.recurrent else "") + (" [noiseless]" if shots is None else "")
         seed_preds = []
@@ -184,7 +187,8 @@ def _plot(df, garch_rmse):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--reservoir", default="both", choices=["quera", "pasqal", "both"])
+    p.add_argument("--reservoir", default="both",
+                   choices=["quera", "pasqal", "pasqal_local", "both"])
     p.add_argument("--atoms", type=int, default=5)
     p.add_argument("--shots", type=int, default=200)
     p.add_argument("--seed", type=int, default=42)
