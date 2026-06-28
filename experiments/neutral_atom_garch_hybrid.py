@@ -122,17 +122,24 @@ def run(args) -> None:
         kinds = [k for k in kinds if k != "quera"]
     labels = {"quera": "QuEra Aquila", "pasqal": "Pasqal Fresnel"}
     for kind in kinds:
-        res = _make_reservoir(kind, n, args.seed)
-        tag = labels[kind] + (" +recurrent" if args.recurrent else "") + (" [noiseless]" if shots is None else "")
-        print(f"\n  [{tag}] {res}")
-        t0 = time.time()
-        R_all = _reservoir_features(res, X_in_all, shots, args.n_jobs, args.recurrent)
-        print(f"    features in {time.time()-t0:.1f}s")
-        R_tr, R_te = R_all[:n_tr], R_all[n_tr:]
-        ridge, sc_r, alpha = fit_readout(R_tr, X_tr_full, y_tr)
-        record(f"{tag} on GARCH-residual",
-               to_vol(apply_readout(ridge, sc_r, R_te, X_te_full)),
-               extra={"alpha": alpha})
+        base = labels[kind] + (" +recurrent" if args.recurrent else "") + (" [noiseless]" if shots is None else "")
+        seed_preds = []
+        for s_off in range(args.n_seeds):
+            seed_i = args.seed + s_off
+            res = _make_reservoir(kind, n, seed_i)
+            t0 = time.time()
+            R_all = _reservoir_features(res, X_in_all, shots, args.n_jobs, args.recurrent)
+            R_tr, R_te = R_all[:n_tr], R_all[n_tr:]
+            ridge, sc_r, alpha = fit_readout(R_tr, X_tr_full, y_tr)
+            pred = to_vol(apply_readout(ridge, sc_r, R_te, X_te_full))
+            seed_preds.append(pred)
+            if args.n_seeds > 1:
+                print(f"    seed {seed_i}: {time.time()-t0:.1f}s")
+        if args.n_seeds > 1:
+            record(f"{base} on GARCH-residual ({args.n_seeds}-seed ens)",
+                   np.mean(np.stack(seed_preds), axis=0))
+        else:
+            record(f"{base} on GARCH-residual", seed_preds[0], extra={"alpha": alpha})
 
     # ---- Save + leaderboard ----
     df = pd.DataFrame(rows)
@@ -184,6 +191,8 @@ if __name__ == "__main__":
     p.add_argument("--max-train", type=int, default=600)
     p.add_argument("--max-test", type=int, default=250)
     p.add_argument("--n-jobs", type=int, default=4, dest="n_jobs")
+    p.add_argument("--n-seeds", type=int, default=1, dest="n_seeds",
+                   help="ensemble size (Phase 2 headline used 3)")
     p.add_argument("--recurrent", action="store_true", help="use sequential memory feedback")
     p.add_argument("--noiseless", action="store_true",
                    help="exact/infinite-shot features (Pasqal only) -- Phase 2 methodology")
