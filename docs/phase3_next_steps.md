@@ -1,188 +1,241 @@
-# Phase 3 — Handoff & Next Steps (for any agent or contributor)
+# Phase 3 Handoff & Next Steps
 
-This document is a self-contained handoff. Read it top to bottom before continuing
-Phase 3. It records **what is built, what is proven, the dead ends (so you don't
-repeat them), and the exact next steps with commands, acceptance criteria, and
-cost**.
+This is the cold-start handoff for any future agent or contributor. Read this
+before running more jobs. It records what is built, what is proven, what failed,
+and what should happen next now that **D-Wave is considered inaccessible**.
 
-Companion docs: [`phase3_report.md`](phase3_report.md) (results + narrative),
-[`quera_aquila_setup.md`](quera_aquila_setup.md), [`pasqal_fresnel_setup.md`](pasqal_fresnel_setup.md),
-[`qbraid_setup.md`](qbraid_setup.md).
-
----
-
-## 1. TL;DR of current status (2026-06-30)
-
-**Goal:** reproduce the Phase 2 GARCH-hybrid headline (QRC beats GARCH on the
-GARCH residual) on **real quantum hardware**, across multiple platforms, and
-present a **classical → GPU Ising → neutral-atom QPU → quantum-annealer QPU**
-timeline beating classical benchmarks (GARCH, LSTM).
-
-**Proven in simulation (in-session reproduction):**
-- QRC beats LSTM/ESN/AR on the raw task.
-- **Only the quantum-annealer GARCH-hybrid beats GARCH** (RMSE 0.00784 vs 0.00795,
-  R² 0.9861, QLIKE 0.00644); the Ridge ablation does **not** (0.00805) → win
-  isolable to the reservoir.
-
-**Key scientific finding (do not re-litigate without new evidence):** the
-GARCH-beating edge needs **quantum-annealing dynamics (the transverse field)**, not
-signed couplings alone. Evidence:
-- Neutral-atom Rydberg (QuEra/Pasqal, positive geometry-fixed couplings): 0.00806 — no win.
-- Classical signed-coupling Ising (SA / Fixstars Amplify / Toshiba SBM, no transverse
-  field): 0.00814 — no win.
-- Quantum annealer (transverse-field Ising, sim): 0.00784 — **wins.**
-→ The advantage lives at the **D-Wave** tier. Classical/GPU Ising machines and
-neutral-atom QPUs reproduce the *competitive* result but not the *advantage*.
-
-**Shot noise is NOT the limiter** (10-atom Pasqal: noiseless 0.00678 == 600-shot
-0.00677). Good for hardware: modest shot budgets suffice.
-
-**No QPU has executed the GARCH-beating result yet** — it is noiseless sim. The
-remaining work is real-hardware execution (Section 4).
+Companion docs:
+- `docs/phase3_report.md` - results and submission narrative.
+- `docs/quera_aquila_setup.md` - QuEra Aquila AHS path.
+- `docs/pasqal_fresnel_setup.md` - Pasqal/Pulser path.
+- `docs/qbraid_setup.md` - qBraid gate-QPU path.
 
 ---
 
-## 2. Repo map (what each piece is)
+## 1. Current Status (2026-07-01)
 
-Reservoirs (`src/qrc/`):
-| File | Reservoir | Substrate | Notes |
+Original goal: show a progression from classical baselines to GPU/Ising machines
+to QPU execution for quantum-reservoir volatility forecasting.
+
+Updated constraint: **treat D-Wave Leap as unavailable**. The D-Wave-like
+transverse-field annealer remains the *scientific explanation* for why the
+GARCH-hybrid wins in simulation, but it is no longer the near-term hardware plan.
+
+### Proven in simulation
+
+- Raw-task QRC beats LSTM/ESN/AR-class baselines, but not GARCH.
+- GARCH is the strongest classical benchmark because the realized-volatility
+  target contains a rolling-window structural prior.
+- The Phase 2 GARCH-hybrid result reproduces exactly:
+  - QRC annealer on GARCH-residual, 3-seed ensemble: **RMSE 0.007844**.
+  - GARCH(1,1): **RMSE 0.007948**.
+  - Ridge residual ablation: **RMSE 0.008051**.
+  - The win is real in noiseless transverse-field Ising simulation.
+
+### Proven negative results
+
+- Neutral-atom Rydberg reservoirs do **not** reproduce the GARCH-beating result:
+  - Pasqal global encoding: ~0.00806.
+  - Per-site DMM/local-detuning surrogate: ~0.00823.
+- Classical signed-coupling Ising sampling does **not** reproduce it:
+  - Local SA / classical Ising tier: ~0.00814.
+- Shot noise is **not** the limiter:
+  - Pasqal 10-atom noiseless ~= 600-shot.
+
+Interpretation: the GARCH-beating edge appears tied to **transverse-field
+quantum-annealing dynamics**, not merely signed couplings or finite-shot effects.
+Because D-Wave is unavailable, the submission should not promise an executed
+GARCH-beating QPU result. The honest submission story is:
+
+1. The hybrid simulation beats GARCH and identifies the needed physics.
+2. Toshiba/Fixstars/SA test the classical Ising tier.
+3. QuEra/qBraid provide executable QPU paths for the competitive reservoir story.
+4. D-Wave remains a future hardware validation path, explicitly blocked.
+
+---
+
+## 2. Repo Map
+
+### Reservoirs
+
+| File | Reservoir | Substrate | Status |
 |---|---|---|---|
-| `reservoir.py` | gate-based QRC | gate circuit | + `transform_sequential` recurrent |
-| `annealer_reservoir.py` | transverse-field Ising (Trotter, statevector) | **the Phase 2 winner** | signed J_ij, per-qubit h_i; noiseless sim of D-Wave |
-| `quera_reservoir.py` | QuEra Aquila AHS | neutral-atom Rydberg | per-site local detuning; `transform_sequential`; noiseless via local sim |
-| `pasqal_reservoir.py` | Pasqal Fresnel | neutral-atom Rydberg | global detuning (real Fresnel) or per-site DMM (`encoding="local"`, MockDevice); noiseless path |
-| `ising_reservoir.py` | signed-coupling Ising machine | **D-Wave / Amplify / Toshiba / SA** | one model, backends: `sa`,`exact`,`dwave`,`amplify`,`toshiba`,`fujitsu`,`hitachi`,`nec`,`dwave_amplify` |
-| `hardware_backend.py` | qBraid gate executor | IonQ/IQM/Rigetti via qBraid | barrier-stripping + bit-order calibration + job-id audit |
+| `src/qrc/reservoir.py` | Gate QRC | gate circuit | qBraid path live-verified on `qir-sv` |
+| `src/qrc/annealer_reservoir.py` | Transverse-field Ising | noiseless Trotter/statevector | Phase 2 GARCH-beating winner |
+| `src/qrc/quera_reservoir.py` | QuEra Aquila AHS | Rydberg neutral atom | local AHS sim + real Aquila path |
+| `src/qrc/pasqal_reservoir.py` | Pasqal/Pulser | Rydberg neutral atom | global + DMM/per-site tests |
+| `src/qrc/ising_reservoir.py` | Signed Ising machine | SA / Toshiba / Amplify / Fujitsu / etc. | cloud backends scaffolded |
+| `src/qrc/hardware_backend.py` | qBraid executor | gate QPUs | strips barriers, calibrates bit order |
 
-Experiments (`experiments/`):
-| File | What |
+### Experiments
+
+| File | Purpose |
 |---|---|
-| `phase2_final.py` | classical + raw-task leaderboard (GARCH/LSTM/ESN/AR/Persistence/QRC) |
-| `phase2_garch_hybrid.py` | **the headline**: annealer QRC beats GARCH on the residual (3-seed) |
-| `neutral_atom_garch_hybrid.py` | multi-platform GARCH-hybrid harness (`--reservoir quera/pasqal/pasqal_local/ising_sa`; `--ising-backend`; `--noiseless --recurrent --n-seeds --atoms --max-train --max-test --shots`) |
-| `neutral_atom_compare.py` | QuEra vs Pasqal vs classical (raw task) |
-| `quera_aquila_qrc.py` | QuEra Aquila: local AHS sim + real `--device aquila --allow-qpu` |
-| `qbraid_hardware_qrc.py` / `qbraid_list_devices.py` | gate-QPU path on qBraid |
-| `quera_tune.py` | reservoir config sweep |
-| `phase3_timeline_figure.py` | the GPU→QPU summary figure |
-
-Key results (`results/`): `phase2_garch_hybrid.csv` (annealer headline),
-`neutral_atom_garch_hybrid_{isingSA,persite}.csv`, `quera_aquila_summary.csv`,
-`neutral_atom_compare.csv`, `phase3_timeline.png`.
+| `experiments/phase2_final.py` | classical + raw-task leaderboard |
+| `experiments/phase2_garch_hybrid.py` | reproduced GARCH-hybrid headline |
+| `experiments/neutral_atom_garch_hybrid.py` | shared harness for QuEra/Pasqal/Ising |
+| `experiments/neutral_atom_compare.py` | QuEra vs Pasqal raw-task comparison |
+| `experiments/quera_aquila_qrc.py` | QuEra local sim + real Aquila run |
+| `experiments/qbraid_hardware_qrc.py` | gate-QPU path |
+| `experiments/ising_cloud_smoke.py` | tiny cloud credential smoke test |
+| `experiments/phase3_timeline_figure.py` | report timeline figure |
 
 ---
 
-## 3. Environment & tokens
+## 3. Tokens And Current Credential State
 
-Installed (this machine / qBraid Lab): `amazon-braket-sdk`, `pulser`+`pulser-simulation`
-(qutip), `dwave-ocean-sdk` (incl. `dwave.samplers` SA + `dwave.system` Leap),
-`amplify` (Fixstars, 1.6.1), `qbraid` (gate path). `requirements.txt` documents all.
+Never commit tokens. Use environment variables only.
 
-Tokens needed for the cloud/hardware runs (set as env vars):
-- **D-Wave Leap**: `DWAVE_API_TOKEN` (from cloud.dwavesys.com/leap). Used by `dwave.system.DWaveSampler`.
-- **Fixstars Amplify**: `AMPLIFY_TOKEN` (amplify.fixstars.com). Used by FixstarsClient and, by default fallback, the other Amplify clients.
-- **Toshiba SBM**: `TOSHIBA_TOKEN` (+ optional `TOSHIBA_URL`) or falls back to `AMPLIFY_TOKEN` if Amplify brokers it.
-- **qBraid** (gate path / QuEra via Braket): already saved to `~/.qbraid/qbraidrc`. (The key pasted in chat on 2026-06-27 should be **rotated**.)
-- **QuEra Aquila**: runs via Braket through qBraid Lab credits (no separate token in Lab).
+| Platform | Env var | Status |
+|---|---|---|
+| qBraid / QuEra Braket | saved in `~/.qbraid/qbraidrc` | works, but rotate the pasted key later |
+| Toshiba SQBM+ | `TOSHIBA_TOKEN`, optional `TOSHIBA_URL` | token was tested and returned **401 Unauthorized** on SDK default endpoint |
+| Fixstars Amplify AE | `AMPLIFY_TOKEN` | not tested with a valid token |
+| D-Wave Leap | `DWAVE_API_TOKEN` | **treat unavailable** |
+
+The Toshiba key provided in chat was tested with:
+
+```powershell
+$env:TOSHIBA_TOKEN="..."
+python experiments/ising_cloud_smoke.py --backend toshiba
+```
+
+Result:
+
+```text
+FAILED: Amplify backend 'toshiba' rejected the credential (401 Unauthorized).
+Set a valid TOSHIBA_TOKEN; for Toshiba/Fujitsu/private endpoints also set
+TOSHIBA_URL if the token is tied to a non-default service URL.
+```
+
+Action: ask the provider/account page for the matching Toshiba endpoint URL, or
+use a new token. The code path itself reaches the cloud service.
 
 ---
 
-## 4. NEXT STEPS — prioritized, with commands & acceptance criteria
+## 4. Near-Term Plan Without D-Wave
 
-### STEP 1 (HEADLINE) — Execute the D-Wave Advantage run  ⭐ blocked on Leap token
-This is the one that turns the gold "beats GARCH" point from simulation into a real
-QPU result. Owner action: obtain `DWAVE_API_TOKEN`.
+### Step 1 - Make Toshiba/Fixstars The Executable GPU-Ising Tier
 
-**Plumbing to add first** (in `src/qrc/ising_reservoir.py::_sample_dwave`, currently
-a minimal version):
-1. **Reuse one minor-embedding.** The coupling graph J is fixed (all-to-all on
-   `--atoms` spins); only h changes per sample. Compute the embedding ONCE with
-   `minorminer.find_embedding` onto `DWaveSampler().edgelist`, then use
-   `dwave.system.FixedEmbeddingComposite(DWaveSampler(), embedding)` for every
-   sample. (The current `EmbeddingComposite` re-embeds each call — too slow/costly.)
-2. **Short anneal for reservoir dynamics.** Use `annealing_time≈1–20 µs` (short =
-   non-equilibrium = the QRC regime), `num_reads≈100–256`.
-3. **Hybrid budget control.** Train the readout on **local SA / annealer-sim**
-   features; run only the **test window** on D-Wave (start `--max-test 100`, single
-   seed). Persist raw samples + problem ids to `results/hardware/dwave/`.
-4. **Cost check.** Per dwave_qrc_exploration.md: ~140 µs/sample → full 746-test ≈
-   ~10 s QPU time with reused embedding. Within Leap; verify against your plan.
+Purpose: execute the same signed-coupling Ising reservoir on an accessible cloud
+Ising machine. This does **not** replace D-Wave scientifically, because it has no
+transverse field, but it gives a real GPU/Ising result for the timeline.
 
-**Run command (after plumbing + token):**
-```bash
-export DWAVE_API_TOKEN=...
-python experiments/neutral_atom_garch_hybrid.py \
-    --reservoir ising_sa --ising-backend dwave --atoms 10 \
-    --max-train 2000 --max-test 100 --shots 200 --n-seeds 1
-# scale to --max-test 0 (full 746) + --n-seeds 3 once the small run looks right
+Credential smoke test:
+
+```powershell
+$env:TOSHIBA_TOKEN="..."
+# If Toshiba gave a service endpoint:
+$env:TOSHIBA_URL="https://..."
+python experiments/ising_cloud_smoke.py --backend toshiba
 ```
-**Acceptance:** D-Wave-residual RMSE < GARCH 0.00795 (target ≈ 0.00784, the sim
-value) on the full test window; Ridge ablation stays at ~0.00805. Save job ids.
-**If it does NOT beat GARCH on hardware:** that's a real finding — report the gap
-vs the noiseless annealer sim as the decoherence/embedding cost (still publishable).
 
-### STEP 2 — Toshiba SBM + Fixstars Amplify (classical-GPU tier contrast)
-Cheap, accessible; gives the *same-reservoir* classical-vs-quantum contrast.
-```bash
-export AMPLIFY_TOKEN=...   # and/or TOSHIBA_TOKEN
-python experiments/neutral_atom_garch_hybrid.py --reservoir ising_sa \
-    --ising-backend toshiba --atoms 10 --max-test 0 --n-seeds 3   # or amplify / fujitsu
+Small finance run after smoke test passes:
+
+```powershell
+python experiments/neutral_atom_garch_hybrid.py `
+  --reservoir ising_sa --ising-backend toshiba `
+  --atoms 10 --max-train 400 --max-test 120 --shots 100 --n-seeds 1
 ```
-**Acceptance:** classical Ising machines reproduce ~the SA tier (≈0.00814, i.e.
-competitive but NOT beating GARCH). The D-Wave-vs-Toshiba gap at the GARCH line IS
-the quantum signal — the cleanest figure for the report.
-**Note:** `_sample_amplify` returns the solver's solution set; if it returns too few
-samples for stable ⟨ZZ⟩, raise multi-output (`parameters.outputs.num_outputs` /
-Toshiba `multishot`/`maxout`) or loop `solve` with seeds.
 
-### STEP 3 — QuEra Aquila real hardware (neutral-atom tier)
-Validates the *competitive-on-raw-task* result on real neutral-atom HW (it will NOT
-beat GARCH — that's expected and documented).
-```bash
-# check availability window first (notebooks/quera_aquila_demo.ipynb cell 4)
+Full run:
+
+```powershell
+python experiments/neutral_atom_garch_hybrid.py `
+  --reservoir ising_sa --ising-backend toshiba `
+  --atoms 10 --max-train 2000 --max-test 0 --shots 300 --n-seeds 3
+```
+
+Expected result: near the local SA/classical Ising tier (~0.0081 RMSE), likely
+not beating GARCH. That is not failure; it supports the timeline separation
+between classical Ising and the simulated quantum-annealer tier.
+
+Acceptance:
+- Cloud solve completes.
+- Raw result CSV and job/client metadata are saved under `results/hardware/toshiba/`
+  if possible.
+- Report marks Toshiba as executed and explains the 401/token requirement if not.
+
+### Step 2 - Run Real QuEra Aquila For The QPU-Executed Reservoir Story
+
+Purpose: show real QPU execution on qBraid/Braket. This is not expected to beat
+GARCH on the GARCH residual; use it for the raw-task competitive story.
+
+```powershell
+python experiments/quera_aquila_qrc.py --dry-run --max-test 40
 python experiments/quera_aquila_qrc.py --device aquila --max-test 40 --shots 100 --allow-qpu
 ```
-**Acceptance:** Aquila features track the local-AHS sim (corr > 0.9); forecast ties
-the best classical baselines on the window. Cost ≈ tasks×($0.30+shots×$0.01).
 
-### STEP 4 — Finalize the report
-After each hardware run:
-1. Drop the executed RMSE into `docs/phase3_report.md` (Sections 4, 6).
-2. Update `experiments/phase3_timeline_figure.py` (`TIER_RMSE` / `LANDSCAPE`) with
-   the **executed** points and regenerate: `python experiments/phase3_timeline_figure.py`.
-3. Mark the platform's status ✅-executed in the report Section 6 table.
-4. Keep raw shot/sample data + job ids under `results/hardware/` as proof.
+Acceptance:
+- Aquila task IDs saved.
+- Hardware features correlate with local AHS features (target >0.9 if noise is
+  mild).
+- Forecast remains competitive with Persistence/ESN on the same window.
 
----
+### Step 3 - Optional Gate-QPU Run Through qBraid
 
-## 5. Suggested timeline
+Purpose: a second real-QPU proof using the gate reservoir.
 
-| When | Milestone | Depends on |
-|---|---|---|
-| Day 0 | Obtain D-Wave Leap token; add FixedEmbedding plumbing (Step 1.1–1.3) | token |
-| Day 0–1 | Small D-Wave test-window run (`--max-test 100`) → sanity | plumbing |
-| Day 1–2 | Full D-Wave run (746, 3-seed) → headline hardware number | small run OK |
-| Day 1 | Toshiba + Amplify runs (parallel, cheap) | AMPLIFY/TOSHIBA token |
-| Day 2 | QuEra Aquila run (during availability window) | qBraid credits |
-| Day 3 | Update report + timeline figure with executed points; finalize submission | runs done |
-
----
-
-## 6. Dead ends already explored (do NOT repeat)
-- **Pasqal Fresnel global-only encoding** → does not beat GARCH (0.00806). Per-site
-  DMM (MockDevice) → also no (0.00823). Neutral-atom can't realise signed couplings.
-- **Classical signed-coupling Ising (SA, full window)** → 0.00814, no win. Signed
-  couplings alone (no transverse field) are insufficient.
-- **More shots** → not the limiter (noiseless == 600-shot).
-- **Scaling atoms on QuEra in CPU sim** → AHS solver ~15 s/program at 8 atoms,
-  infeasible ≥10. Use Pasqal/qutip for CPU scaling, GPU/CUDA-Q or real Aquila for QuEra.
-- **Threads for local-sim parallelism** → slower than serial (GIL); use processes
-  (`n_jobs`, ~2.7× on this box; better on Linux/fork).
-
-## 7. One-command reproductions (sim, no tokens)
-```bash
-python experiments/phase2_final.py                         # classical + raw leaderboard
-python experiments/phase2_garch_hybrid.py --n-seeds 3      # annealer beats GARCH (headline)
-python experiments/neutral_atom_garch_hybrid.py --reservoir ising_sa --atoms 10 --max-test 0 --n-seeds 3
-python experiments/phase3_timeline_figure.py               # the summary figure
+```powershell
+python experiments/qbraid_list_devices.py --online --gate
+python experiments/qbraid_hardware_qrc.py `
+  --device openquantum:ionq:qpu:forte-1 `
+  --max-test 40 --shots 1024 --max-batch 20 --allow-qpu
 ```
+
+Known gotchas are already fixed:
+- Qiskit barriers are stripped before qBraid submission.
+- qBraid `qir-sv` bit order differs from local Aer; calibration is automatic.
+
+### Step 4 - Update Report And Timeline
+
+After each executed cloud/hardware run:
+
+1. Add the executed row to `docs/phase3_report.md`.
+2. Update `experiments/phase3_timeline_figure.py`.
+3. Regenerate:
+
+```powershell
+python experiments/phase3_timeline_figure.py
+```
+
+4. Commit result CSVs, figures, and any job-id JSON.
+
+---
+
+## 5. Revised Submission Timeline
+
+| Day | Work | Depends on |
+|---|---|---|
+| 0 | Fix/confirm Toshiba credentials (`TOSHIBA_URL` if needed) | provider/account |
+| 0 | Toshiba smoke test with `ising_cloud_smoke.py` | valid token |
+| 0-1 | Small Toshiba finance run | smoke passes |
+| 1 | Full Toshiba/Fixstars run | small run passes |
+| 1-2 | Real QuEra Aquila run during availability window | qBraid credits |
+| 2 | Optional gate-QPU qBraid run | credits/device queue |
+| 2-3 | Regenerate report + timeline with executed points | run outputs |
+
+---
+
+## 6. Do Not Repeat These Detours
+
+- Pasqal global/per-site on the GARCH residual: tested, no GARCH beat.
+- More shots: tested, not the limiter.
+- QuEra local AHS scaling beyond ~8 atoms on CPU: too slow.
+- Threads for local simulation: slower than process workers.
+- Classical signed Ising alone as a route to GARCH beat: local SA does not beat
+  GARCH on the full window. Use Toshiba/Fixstars as the executable GPU tier, not
+  as the claimed advantage tier.
+- D-Wave as near-term plan: currently considered inaccessible.
+
+---
+
+## 7. No-Token Reproductions
+
+```powershell
+python experiments/phase2_final.py
+python experiments/phase2_garch_hybrid.py --n-seeds 3
+python experiments/neutral_atom_garch_hybrid.py --reservoir ising_sa --atoms 10 --max-test 0 --n-seeds 3
+python experiments/phase3_timeline_figure.py
+```
+

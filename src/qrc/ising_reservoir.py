@@ -165,7 +165,19 @@ class IsingReservoir:
             obj = obj + float(Jij) * s[i] * s[j]
         if client is None:
             client = self._make_amplify_client(kind, timeout_ms)
-        result = amplify.solve(obj, client)
+        try:
+            result = amplify.solve(obj, client)
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "401" in msg or "Unauthorized" in msg:
+                token_hint = f"{kind.upper()}_TOKEN"
+                url_hint = f"{kind.upper()}_URL"
+                raise RuntimeError(
+                    f"Amplify backend '{kind}' rejected the credential (401 Unauthorized). "
+                    f"Set a valid {token_hint}; for Toshiba/Fujitsu/private endpoints also set "
+                    f"{url_hint} if the token is tied to a non-default service URL."
+                ) from exc
+            raise
         rows = []
         for sol in result:
             try:

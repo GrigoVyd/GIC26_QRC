@@ -208,7 +208,10 @@ if __name__ == "__main__":
     p.add_argument("--n-seeds", type=int, default=1, dest="n_seeds",
                    help="ensemble size (Phase 2 headline used 3)")
     p.add_argument("--ising-backend", default="sa", dest="ising_backend",
-                   choices=["sa", "amplify", "toshiba", "fujitsu", "dwave", "exact"],
+                   choices=[
+                       "sa", "exact", "dwave", "amplify", "toshiba", "fujitsu",
+                       "hitachi", "nec", "dwave_amplify",
+                   ],
                    help="sampler for --reservoir ising_sa (cloud backends need a token)")
     p.add_argument("--recurrent", action="store_true", help="use sequential memory feedback")
     p.add_argument("--noiseless", action="store_true",

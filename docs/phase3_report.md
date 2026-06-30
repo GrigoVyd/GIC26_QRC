@@ -29,9 +29,13 @@ Two honest headline findings:
    the GARCH-beating edge. The transverse field — not signed couplings alone — is
    the active ingredient.
 
-This gives a clean, falsifiable Phase 3 story: **the quantum advantage over the
-best classical baseline emerges at the quantum-annealer QPU tier (D-Wave), and is
-absent at the classical/GPU and neutral-atom tiers.**
+This gives a clean, falsifiable Phase 3 story: **the simulated advantage over the
+best classical baseline emerges only in the transverse-field quantum-annealer
+tier, and is absent at the classical/GPU and neutral-atom tiers.** Since D-Wave is
+currently treated as inaccessible, the near-term submission should frame this as
+a physics diagnosis plus an executable platform timeline: Toshiba/Fixstars for
+the classical GPU-Ising tier, QuEra/qBraid for real-QPU execution, and D-Wave as a
+future validation path rather than the immediate proof.
 
 ---
 
@@ -112,13 +116,15 @@ with the *other* baselines but cannot realise this specific advantage.
 | Neutral-atom QPU | **QuEra Aquila** | Braket AHS | ✅ reservoir + local AHS run; real-Aquila run ready (qBraid) |
 | Neutral-atom QPU | **Pasqal Fresnel** | Pulser | ✅ reservoir + emulator run; HW pending device availability |
 | Gate QPU | IonQ / IQM / Rigetti | qBraid runtime | ✅ pipeline live-verified on qBraid `qir-sv` |
-| **Quantum annealer QPU** | **D-Wave Advantage** | `dwave.system` (Leap) | ✅ reservoir built; **Leap run is the key remaining hardware proof** |
+| **Quantum annealer QPU** | **D-Wave Advantage** | `dwave.system` (Leap) | reservoir built; **currently inaccessible / future validation** |
 
 **What has run on real cloud infrastructure:** the gate pipeline was verified
 end-to-end on the live qBraid `qir-sv` API (real job ids, feature fidelity 0.996).
 All reservoir simulators/emulators (AHS, Pulser, SA, Amplify-ready) run locally.
-**The headline hardware proof remaining is the D-Wave Advantage run** of the
-GARCH-hybrid reservoir, where the simulated advantage is expected to transfer.
+With D-Wave inaccessible, the next executable cloud steps are (i) Toshiba/Fixstars
+Ising-machine runs for the GPU/classical tier and (ii) QuEra Aquila for the
+neutral-atom QPU tier. The GARCH-beating D-Wave result remains a simulated target,
+not an executed hardware claim.
 
 ## 7. Reproducibility
 
@@ -129,8 +135,8 @@ GARCH-hybrid reservoir, where the simulated advantage is expected to transfer.
 | GARCH-hybrid on neutral atoms / Ising machine | `python experiments/neutral_atom_garch_hybrid.py --reservoir {quera,pasqal,pasqal_local,ising_sa} --atoms 10 --max-test 0 --n-seeds 3` |
 | QuEra Aquila (real HW) | `python experiments/quera_aquila_qrc.py --device aquila --allow-qpu` |
 | Ising on Fixstars Amplify (GPU) | `AMPLIFY_TOKEN=… python experiments/neutral_atom_garch_hybrid.py --reservoir ising_sa --ising-backend amplify --atoms 10 --max-test 0 --n-seeds 3` |
-| Ising on Toshiba SBM | `TOSHIBA_TOKEN=… … --ising-backend toshiba` (same command; or fujitsu) |
-| Ising on D-Wave (Leap) | Leap token, then `… --ising-backend dwave` (or `IsingReservoir(...).transform(X, backend="dwave")`) |
+| Ising on Toshiba SBM | `TOSHIBA_TOKEN=… python experiments/ising_cloud_smoke.py --backend toshiba` first, then `… --ising-backend toshiba` |
+| Ising on D-Wave (future) | Leap token, then `… --ising-backend dwave` (currently treated as inaccessible) |
 
 Reservoirs: `src/qrc/{reservoir,annealer_reservoir,quera_reservoir,pasqal_reservoir,ising_reservoir}.py`.
 Setup docs: `docs/{quera_aquila_setup,pasqal_fresnel_setup,qbraid_setup}.md`.
@@ -140,8 +146,11 @@ Setup docs: `docs/{quera_aquila_setup,pasqal_fresnel_setup,qbraid_setup}.md`.
 - The GARCH-beating margin is small (−1.4% RMSE) and on a near-saturated residual;
   it is consistent across RMSE/R²/QLIKE and isolable to the reservoir, but modest.
 - **No QPU has yet *executed* the GARCH-beating result** — it is demonstrated in
-  noiseless quantum-annealer simulation. Confirming it requires a real D-Wave run
-  (shot/embedding/noise effects may shift the absolute number; we expect the
-  direction to survive — shot-noise was shown non-limiting on the neutral-atom side).
+  noiseless quantum-annealer simulation. A real D-Wave run would be the direct
+  confirmation, but D-Wave is currently treated as inaccessible. Therefore the
+  near-term submission should avoid claiming an executed GARCH-beating QPU result.
+- Toshiba SQBM smoke test reached the service but returned `401 Unauthorized` with
+  the provided token on the SDK default endpoint. A valid `TOSHIBA_TOKEN` and
+  possibly `TOSHIBA_URL` are needed before the GPU-Ising cloud tier can be executed.
 - GARCH(1,1) is the simplest GARCH; a full econometric panel (GJR/EGARCH/HAR) is
   future work. The residual trick should compose with any of them.

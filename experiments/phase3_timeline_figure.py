@@ -1,9 +1,9 @@
-"""
+﻿"""
 Phase 3 summary figure: the GPU -> QPU timeline vs classical benchmarks.
 
 Panel A: full benchmark landscape (RMSE on annualised-vol scale, 746-day test).
-Panel B: the GPU -> neutral-atom QPU -> quantum-annealer QPU progression on the
-         GARCH-residual hybrid, zoomed on the GARCH benchmark crossing.
+Panel B: the executable GPU/neutral-atom tiers plus the quantum-annealer
+         simulation target, zoomed on the GARCH benchmark crossing.
 
 Numbers are the headline results from this Phase 3 study (see docs/phase3_report.md).
 Produces results/phase3_timeline.png (+ _doc.png @ 1200 DPI).
@@ -35,12 +35,12 @@ LANDSCAPE = [
     ("Pasqal neutral-atom (hybrid)",     0.00806, "neutral"),
     ("Ridge residual (ablation)",        0.00805, "classical"),
     ("GARCH(1,1)",                       0.00795, "garch"),
-    ("QRC quantum annealer (hybrid)",    0.00784, "quantum_adv"),
+    ("QRC quantum annealer sim (hybrid)", 0.00784, "quantum_adv"),
 ]
 
 # Timeline: best GARCH-residual RMSE per platform tier (the progression)
-TIERS = ["GPU Ising\n(Amplify / SA)", "Neutral-atom QPU\n(QuEra / Pasqal)",
-         "Quantum-annealer QPU\n(D-Wave)"]
+TIERS = ["GPU Ising\n(Toshiba / Amplify)", "Neutral-atom QPU\n(QuEra / Pasqal)",
+         "Quantum annealer sim\n(D-Wave future)"]
 TIER_RMSE = [0.00814, 0.00806, 0.00784]
 
 COLORS = {"classical": "#9e9e9e", "quantum": "#2166ac", "neutral": "#7c3aed",
@@ -59,7 +59,7 @@ def main() -> None:
     bars = axA.barh(labels, vals, color=cols)
     axA.bar_label(bars, fmt="%.5f", padding=3, fontsize=7)
     axA.axvline(GARCH, color="black", ls="--", lw=1.2, alpha=0.7)
-    axA.set_xlabel("RMSE (annualised volatility) — lower is better")
+    axA.set_xlabel("RMSE (annualised volatility) вЂ” lower is better")
     axA.set_title("A. Benchmark landscape (746-day test)")
     axA.set_xlim(0.0072, 0.0112)
     axA.grid(True, axis="x", alpha=0.25)
@@ -69,7 +69,7 @@ def main() -> None:
            Patch(color=COLORS["quantum"], label="QRC (sim)"),
            Patch(color=COLORS["neutral"], label="neutral-atom QPU"),
            Patch(color=COLORS["ising"], label="Ising machine (GPU)"),
-           Patch(color=COLORS["quantum_adv"], label="quantum annealer (beats GARCH)")]
+           Patch(color=COLORS["quantum_adv"], label="quantum annealer sim (beats GARCH)")]
     axA.legend(handles=leg, fontsize=7, loc="lower right")
 
     # ---- Panel B: GPU -> QPU timeline ----
@@ -88,12 +88,12 @@ def main() -> None:
                      xytext=(0, 10), ha="center", fontsize=9)
     axB.set_xticks(x); axB.set_xticklabels(TIERS, fontsize=8)
     axB.set_ylabel("RMSE (GARCH-residual hybrid)")
-    axB.set_title("B. GPU → QPU timeline (predict GARCH residual)")
+    axB.set_title("B. Execution roadmap (predict GARCH residual)")
     axB.set_ylim(0.00770, 0.00830)
     axB.legend(fontsize=8, loc="upper right")
     axB.grid(True, axis="y", alpha=0.25)
 
-    fig.suptitle("GIC 2026 Phase 3 — QRC vs classical benchmarks: from GPU Ising machines to QPUs",
+    fig.suptitle("GIC 2026 Phase 3 - QRC vs classical benchmarks: executable GPU/QPU tiers + annealer target",
                  fontsize=13, y=1.00)
     plt.tight_layout()
     out = os.path.join(RESULTS_DIR, "phase3_timeline.png")
@@ -105,3 +105,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
