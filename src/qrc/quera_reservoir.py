@@ -41,7 +41,9 @@ Validate for free on the local AHS simulator before spending QuEra credits:
 from __future__ import annotations
 
 import os
+import json
 import numpy as np
+from pathlib import Path
 from typing import Literal, Optional, Sequence
 
 from braket.ahs import (
@@ -159,15 +161,18 @@ class QueraReservoir:
             R = s / (2 * np.sin(np.pi / n))
             coords = np.array([[R * np.cos(2 * np.pi * i / n),
                                 R * np.sin(2 * np.pi * i / n)] for i in range(n)])
-        else:  # random2d — jittered grid that respects the min-spacing constraint
+        else:  # random2d — seeded irregular lattice satisfying Aquila axis rules
             cols = int(np.ceil(np.sqrt(n)))
+            rows = int(np.ceil(n / cols))
+            # Aquila requires every non-zero pairwise separation on each axis to
+            # be >=4um. Shared seeded x/y coordinates preserve exact row/column
+            # alignment while irregular 5-8um steps retain coupling disorder.
+            xs = np.concatenate([[0.0], np.cumsum(rng.uniform(5.0e-6, 8.0e-6, cols - 1))])
+            ys = np.concatenate([[0.0], np.cumsum(rng.uniform(5.0e-6, 8.0e-6, rows - 1))])
             pts = []
-            # Jitter capped at 0.1*s so even adjacent atoms stay > 4um apart:
-            # min neighbour distance >= s - 2*0.1*s = 0.8*s (= 4.8um at s=6um).
             for i in range(n):
                 r, c = divmod(i, cols)
-                jitter = rng.uniform(-0.1, 0.1, size=2) * s
-                pts.append([c * s + jitter[0], r * s + jitter[1]])
+                pts.append([xs[c], ys[r]])
             coords = np.array(pts)
 
         coords = coords - coords.min(axis=0)             # shift into the first quadrant
@@ -180,11 +185,18 @@ class QueraReservoir:
             raise ValueError("register exceeds Aquila field of view; reduce spacing/n_atoms")
         for i in range(len(coords)):
             for j in range(i + 1, len(coords)):
-                d = np.hypot(*(coords[i] - coords[j]))
+                delta = np.abs(coords[i] - coords[j])
+                d = np.hypot(*delta)
                 if d < AQUILA_MIN_SPACING - 1e-12:
                     raise ValueError(
                         f"atoms {i},{j} spaced {d*1e6:.2f}um < {AQUILA_MIN_SPACING*1e6:.0f}um min"
                     )
+                for axis, sep in zip(("x", "y"), delta):
+                    if 1e-12 < sep < AQUILA_MIN_SPACING - 1e-12:
+                        raise ValueError(
+                            f"atoms {i},{j} have {axis}-separation {sep*1e6:.2f}um; "
+                            "Aquila requires zero or >=4um"
+                        )
 
     def register(self) -> AtomArrangement:
         reg = AtomArrangement()
@@ -209,7 +221,7 @@ class QueraReservoir:
         """Per-site detuning carrying the input: w_i in [0,1] x Delta_local(t)."""
         t0, tr, T = 0.0, self.ramp_time, self.total_time
         mag = _ts([t0, tr, T - tr, T],
-                  [0.0, self.local_detuning_max, self.local_detuning_max, 0.0])
+                  [0.0, -self.local_detuning_max, -self.local_detuning_max, 0.0])
         return LocalDetuning(magnitude=Field(time_series=mag, pattern=Pattern(list(weights))))
 
     @staticmethod
@@ -266,7 +278,8 @@ class QueraReservoir:
     # ------------------------------------------------------------------
 
     def transform(self, X: np.ndarray, device=None, shots: int = 100,
-                  verbose: bool = False, n_jobs: int = 1) -> np.ndarray:
+                  verbose: bool = False, n_jobs: int = 1,
+                  checkpoint_path: str | None = None) -> np.ndarray:
         """
         Run every sample's AHS program and return the (Z, ZZ) feature matrix.
 
@@ -301,20 +314,70 @@ class QueraReservoir:
             dev = LocalSimulator("braket_ahs")
         else:
             dev = device
+        qbraid_device = (not local and
+                         dev.__class__.__module__.startswith("qbraid.runtime"))
+        if qbraid_device:
+            from src.qrc.hardware_backend import patch_qbraid_ahs_decimal_encoder
+            patch_qbraid_ahs_decimal_encoder()
 
         feats = []
+        start = 0
+        checkpoint = None
+        if not local and checkpoint_path:
+            checkpoint = Path(checkpoint_path)
+            if checkpoint.exists():
+                saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+                if saved.get("n_atoms") != self.n_atoms or saved.get("shots") != shots:
+                    raise RuntimeError("hardware checkpoint configuration mismatch")
+                feats = [np.asarray(row, dtype=float) for row in saved.get("features", [])]
+                self.submitted_task_ids = list(saved.get("task_ids", []))
+                start = len(feats)
+                if start > len(X):
+                    raise RuntimeError("hardware checkpoint has more rows than requested")
+                if verbose and start:
+                    print(f"    resumed {start}/{len(X)} completed hardware rows", flush=True)
         programs = self.build_programs(X)
-        for k, prog in enumerate(programs):
+        for k, prog in enumerate(programs[start:], start=start):
             if not local:
-                prog = prog.discretize(dev)         # snap to Aquila's value grid
-            task = dev.run(prog, shots=shots)
+                if qbraid_device:
+                    prog = dev.transform(prog)
+                    dev.validate([prog])
+                else:
+                    prog = prog.discretize(dev)     # snap to Aquila's value grid
+            run_kwargs = {"shots": shots}
+            if qbraid_device:
+                run_kwargs["runtime_options"] = {"experimental_capabilities": "ALL"}
+            task = dev.run(prog, **run_kwargs)
             task_id = getattr(task, "id", None) or getattr(task, "arn", None)
             if callable(task_id):
                 task_id = task_id()
             if task_id is not None and not local:
                 self.submitted_task_ids.append(str(task_id))
+                if verbose:
+                    print(f"    submitted sample {k+1}: {task_id}", flush=True)
             result = task.result()
-            feats.append(self.features_from_measurements(result.measurements))
+            measurements = (result.data.measurements if hasattr(result, "data")
+                            else result.measurements)
+            if callable(measurements):
+                measurements = measurements()
+            if measurements is None:
+                status = task.status() if hasattr(task, "status") else "unknown"
+                raise RuntimeError(
+                    f"AHS task {task_id} returned no measurements (status={status}); "
+                    "inspect qBraid job metadata before retrying."
+                )
+            feats.append(self.features_from_measurements(measurements))
+            if checkpoint is not None:
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                payload = {
+                    "n_atoms": self.n_atoms, "shots": shots,
+                    "completed_rows": len(feats),
+                    "features": [np.asarray(row).tolist() for row in feats],
+                    "task_ids": self.submitted_task_ids,
+                }
+                tmp = checkpoint.with_suffix(checkpoint.suffix + ".tmp")
+                tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                os.replace(tmp, checkpoint)
             if verbose:
                 print(f"    sample {k+1}/{len(programs)} done", flush=True)
         return np.asarray(feats)

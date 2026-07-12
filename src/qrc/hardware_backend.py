@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import time
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
@@ -215,7 +216,7 @@ class QbraidExecutor:
                     "statevector path which does not need it."
                 ) from e
             self._provider = (
-                QbraidProvider(api_key=self.api_key) if self.api_key else QbraidProvider()
+                QbraidProvider(api_key=self.api_key or qbraid_api_key())
             )
         return self._provider
 
@@ -377,3 +378,35 @@ class QbraidExecutor:
         with open(path, "w") as f:
             json.dump(payload, f, indent=2)
         self._log(f"  Job ids ({len(self.submitted_job_ids)}) -> {path}")
+def qbraid_api_key() -> str:
+    """Read qBraid auth from environment or a git-ignored local secret file."""
+    value = os.environ.get("QBRAID_API_KEY", "").strip()
+    if value:
+        return value
+    root = Path(__file__).resolve().parents[2] / ".secrets"
+    for name in ("qbraid_token", "qBraid_testQPU_token"):
+        try:
+            value = (root / name).read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            continue
+        if value:
+            return value
+    return ""
+
+
+def patch_qbraid_ahs_decimal_encoder() -> None:
+    """Work around qBraid <=0.12.2 failing to JSON-encode Braket AHS Decimals."""
+    from decimal import Decimal
+    from qbraid.programs.analog._model import AnalogHamiltonianEncoder
+
+    if getattr(AnalogHamiltonianEncoder, "_qrc_decimal_patch", False):
+        return
+    original = AnalogHamiltonianEncoder.default
+
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return str(obj)
+        return original(self, obj)
+
+    AnalogHamiltonianEncoder.default = default
+    AnalogHamiltonianEncoder._qrc_decimal_patch = True

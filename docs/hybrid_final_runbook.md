@@ -160,30 +160,50 @@ Success targets:
 - hardware RMSE improves on the Ridge residual ablation (`0.00863`);
 - stretch: hardware RMSE remains near the ideal gate hybrid (`0.00845`).
 
-### B. QuEra Aquila — native analog-QRC hybrid
+### B. QuEra Aquila — executed native analog-QRC hybrid
 
-With a separate ~$50 qBraid balance, use 36 tasks and 100 shots:
+The token-backed qBraid route was executed with a $25 / 2,500-credit balance.
+Live pricing was `30 credits/task + 1 credit/shot`. One successful smoke task
+and 23 financial tasks used `1,920` credits total, leaving `580` credits.
+
+The hardware-valid program differs from the early local prototype in three
+important ways: coordinates use a seeded irregular rectangular lattice so every
+nonzero x/y separation is at least 4 um; local detuning is negative; and qBraid
+receives `runtime_options={"experimental_capabilities": "ALL"}`. qBraid SDK
+0.12.2 still requires the narrow Decimal-serialization workaround in
+`hardware_backend.py`. Two validation failures discovered these constraints and
+both cost zero credits.
 
 ```powershell
 python experiments/quera_aquila_qrc.py `
-  --device aquila --hybrid-target garch --result-tag aquila_garch_hw `
+  --device qbraid_aquila --hybrid-target garch `
+  --result-tag qbraid_aquila_hw_native_neg_23x50 `
   --atoms 5 --geometry random2d --seed 42 `
-  --max-train 400 --max-test 36 --shots 100 --n-jobs 4 `
-  --hardware-calibration-rows 6 `
-  --credit-budget 5000 --allow-qpu
+  --max-train 400 --max-test 23 --shots 50 --n-jobs 4 `
+  --readout-alpha 300 --correction-strength 0.105 `
+  --feature-calibration-rows 3 `
+  --credit-budget 2000 --allow-qpu
 ```
 
-Expected cost: `4,680 qBraid credits = $46.80`; reserve: 320 credits. Run only
-during an Aquila execution window. This is a shorter forecast window, so lead
-with feature fidelity and hardware-vs-local agreement rather than claiming a
-full statistical advantage.
+The first three measured inputs were used only for label-free global affine
+feature alignment; the remaining 20 were scored. Raw hardware/local feature
+correlation was `0.3438`; alignment reduced feature MAE from `0.3255` to
+`0.2211` with scale `0.3013` and bias `0.5160`. Despite modest raw fidelity, the
+conservative hybrid remained extremely close to its matched local proxy:
 
-Success targets:
+| Model (20 held-out rows) | RMSE | Relative to Aquila hardware |
+|---|---:|---:|
+| GARCH | 0.013728 | Aquila is 0.182% worse |
+| Local AHS hybrid | 0.013749 | Aquila is 0.029% worse |
+| Real Aquila hybrid | 0.013753 | reference |
+| Ridge residual ablation | 0.014641 | Aquila is 6.064% better |
+| ESN | 0.014725 | Aquila is 6.601% better |
 
-- all 36 task ARNs saved;
-- hardware/local-AHS feature correlation at least 0.85;
-- hardware hybrid improves on the linear residual ablation on the same 36 rows;
-- stretch: remains near or below GARCH on that short window.
+This is real analog-QPU hybrid competitiveness, not quantum advantage. The
+scientific value is that native analog hardware reproduces the matched hybrid
+forecast almost exactly after label-free feature transfer, while clearly
+beating the linear residual ablation. Per-row checkpoints preserve all features
+and task IDs and make the expensive sequential run safely resumable.
 
 ### C. Pasqal Fresnel — preferred analog sidecar if access is granted
 

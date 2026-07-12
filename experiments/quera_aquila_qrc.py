@@ -52,6 +52,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 
 from src.qrc.quera_reservoir import QueraReservoir
+from src.qrc.hardware_backend import qbraid_api_key
 from src.data.loaders import load_financial_data_v2, invert_target
 from src.baselines.classical import EchoStateNetwork, regression_metrics, print_metrics
 
@@ -82,10 +83,10 @@ def _cv_alpha(R_tr, y_tr, alphas=_ALPHAS, n_splits=5):
     return best_alpha
 
 
-def fit_readout(R_tr, X_tr_full, y_tr):
+def fit_readout(R_tr, X_tr_full, y_tr, alpha_override=None):
     R_aug = np.hstack([R_tr, X_tr_full])
     sc = StandardScaler(); R_s = sc.fit_transform(R_aug)
-    alpha = _cv_alpha(R_s, y_tr)
+    alpha = float(alpha_override) if alpha_override is not None else _cv_alpha(R_s, y_tr)
     ridge = Ridge(alpha=alpha); ridge.fit(R_s, y_tr)
     return ridge, sc, alpha
 
@@ -149,7 +150,7 @@ def run(args) -> None:
     est_cost = n_te * (_AQUILA_PER_TASK + args.shots * _AQUILA_PER_SHOT)
     print(f"[1] Aquila footprint: {n_te} tasks x {args.shots} shots "
           f"(~${est_cost:.2f} = ~{est_cost * 100:.0f} qBraid credits at list price)")
-    if args.device == "aquila" and est_cost * 100 > args.credit_budget:
+    if args.device != "local" and est_cost * 100 > args.credit_budget:
         raise RuntimeError(
             f"Estimated Aquila charge {est_cost * 100:.0f} qBraid credits "
             f"exceeds the {args.credit_budget:.0f}-credit cap. No tasks submitted."
@@ -181,26 +182,79 @@ def run(args) -> None:
                 "Refusing to run on Aquila without --allow-qpu (spends credits: "
                 f"{n_te} tasks x {args.shots} shots ~ ${est_cost:.2f})."
             )
-        from braket.aws import AwsDevice
-        from braket.devices import Devices
-        device = AwsDevice(Devices.QuEra.Aquila)
-        md = device.properties.service
+        if args.device == "qbraid_aquila":
+            from qbraid.runtime import QbraidProvider
+            device = QbraidProvider(api_key=qbraid_api_key()).get_device(
+                "aws:quera:qpu:aquila"
+            )
+            md = device.metadata()
+            if str(md.get("status", "")).upper() != "ONLINE":
+                raise RuntimeError(f"qBraid Aquila is not online: {md.get('status')}")
+            pricing = md.get("pricing", {}) or {}
+            per_task = float(pricing.get("perTask", 30.0))
+            per_shot = float(pricing.get("perShot", 1.0))
+            checkpoint_path = os.path.join(
+                RESULTS_DIR, f"quera_aquila_checkpoint_{args.result_tag or 'run'}.json"
+            )
+            completed = 0
+            if os.path.exists(checkpoint_path):
+                with open(checkpoint_path, encoding="utf-8") as f:
+                    completed = int(json.load(f).get("completed_rows", 0))
+            remaining = max(0, n_te - completed)
+            live_credits = remaining * (per_task + args.shots * per_shot)
+            print(f"    qBraid live pricing: {per_task} credits/task + "
+                  f"{per_shot} credits/shot; {remaining} remaining tasks = "
+                  f"{live_credits:.0f} credits")
+            if live_credits > args.credit_budget:
+                raise RuntimeError(
+                    f"Live charge {live_credits:.0f} exceeds cap "
+                    f"{args.credit_budget:.0f}; no tasks submitted."
+                )
+        else:
+            from braket.aws import AwsDevice
+            from braket.devices import Devices
+            device = AwsDevice(Devices.QuEra.Aquila)
+            md = device.properties.service
+            checkpoint_path = None
         print(f"\n[3] Submitting {n_te} tasks to QuEra Aquila ...")
         t0 = time.time()
-        R_te_dev = res.transform(Xte_in, device=device, shots=args.shots, verbose=True)
+        R_te_dev = res.transform(
+            Xte_in, device=device, shots=args.shots, verbose=True,
+            checkpoint_path=checkpoint_path,
+        )
         print(f"    Aquila run done in {time.time()-t0:.0f}s")
         dev_label = "QuEra Aquila (hardware)"
         n_tasks = n_te
 
-    # ---- Feature fidelity vs local sim ----
+    # ---- Feature fidelity vs local sim + label-free affine transfer ----
+    R_te_dev_raw = R_te_dev.copy()
+    raw_corr = float(np.corrcoef(R_te_dev_raw.ravel(), R_te_local.ravel())[0, 1])
+    raw_mae = float(np.mean(np.abs(R_te_dev_raw - R_te_local)))
+    feature_scale, feature_bias = 1.0, 0.0
+    k_feat = args.feature_calibration_rows
+    if k_feat:
+        if not (0 < k_feat < n_te):
+            raise ValueError("--feature-calibration-rows must be between 1 and max-test-1")
+        A = np.column_stack([R_te_dev_raw[:k_feat].ravel(),
+                             np.ones(R_te_dev_raw[:k_feat].size)])
+        feature_scale, feature_bias = np.linalg.lstsq(
+            A, R_te_local[:k_feat].ravel(), rcond=None
+        )[0]
+        R_te_dev = feature_scale * R_te_dev_raw + feature_bias
     corr = float(np.corrcoef(R_te_dev.ravel(), R_te_local.ravel())[0, 1])
     mae_feat = float(np.mean(np.abs(R_te_dev - R_te_local)))
     print(f"\n[4] Feature fidelity ({dev_label} vs local sim): "
-          f"corr={corr:.4f}  mean abs err={mae_feat:.4f}")
+          f"raw corr={raw_corr:.4f}, raw MAE={raw_mae:.4f}; "
+          f"aligned corr={corr:.4f}, aligned MAE={mae_feat:.4f}")
+    if k_feat:
+        print(f"    Label-free feature transfer on first {k_feat} rows: "
+              f"scale={feature_scale:.4f}, bias={feature_bias:.4f}")
 
     # ---- Readout + scoring ----
     print("\n[5] Readout (trained on local-sim features) ...")
-    ridge, sc_r, alpha = fit_readout(R_tr_local, X_tr_full, y_tr)
+    ridge, sc_r, alpha = fit_readout(
+        R_tr_local, X_tr_full, y_tr, alpha_override=args.readout_alpha
+    )
     print(f"    Ridge alpha (CV) = {alpha}")
     pred_sim_res = apply_readout(ridge, sc_r, R_te_local, X_te_full)
     pred_dev_res = apply_readout(ridge, sc_r, R_te_dev, X_te_full)
@@ -227,11 +281,12 @@ def run(args) -> None:
         print_metrics(f"{name:<34}", m)
         rows.append({"Model": name, **m, **(extra or {})})
 
-    eval_sl = slice(k_cal, None)
+    k_exclude = max(k_cal, k_feat)
+    eval_sl = slice(k_exclude, None)
     y_te_raw_all_scoring = y_te_raw
     y_te_raw = y_te_raw[eval_sl]
     print(f"\n[6] Scoring on {len(y_te_raw)} evaluation rows "
-          f"({k_cal} calibration rows excluded)\n" + "-" * 78)
+          f"({k_exclude} calibration rows excluded)\n" + "-" * 78)
     record("Persistence", pers_te[eval_sl].copy())
     if use_garch:
         record("GARCH proxy (zero residual)", np.exp(log_garch_te[eval_sl]))
@@ -244,7 +299,11 @@ def run(args) -> None:
     record(f"QuEra {n}atom -- {dev_label}", pred_dev[eval_sl],
            extra={"corr_vs_sim": corr, "feat_mae": mae_feat, "n_tasks": n_tasks,
                   "shots": args.shots, "correction_strength": dev_strength,
-                  "hardware_calibration_rows": k_cal})
+                  "hardware_calibration_rows": k_cal,
+                  "feature_calibration_rows": k_feat,
+                  "feature_corr_raw": raw_corr, "feature_mae_raw": raw_mae,
+                  "feature_affine_scale": feature_scale,
+                  "feature_affine_bias": feature_bias})
 
     df = pd.DataFrame(rows)
     suffix = f"_{args.result_tag}" if args.result_tag else ""
@@ -254,16 +313,19 @@ def run(args) -> None:
 
     out_npz = os.path.join(RESULTS_DIR, f"quera_aquila_features{suffix}.npz")
     np.savez_compressed(
-        out_npz, R_test_local=R_te_local, R_test_device=R_te_dev,
+        out_npz, R_test_local=R_te_local, R_test_device_raw=R_te_dev_raw,
+        R_test_device=R_te_dev,
         X_test=X_te_full, y_test_raw=y_te_raw_all_scoring,
         hybrid_target=args.hybrid_target, device=str(device), shots=args.shots,
         pred_residual_local=pred_sim_res, pred_residual_device=pred_dev_res,
         correction_strength_local=sim_strength,
         correction_strength_device=dev_strength,
         hardware_calibration_rows=k_cal,
+        feature_calibration_rows=k_feat,
+        feature_affine_scale=feature_scale, feature_affine_bias=feature_bias,
     )
     print(f"  Saved -> {os.path.relpath(out_npz)}")
-    if args.device == "aquila":
+    if args.device != "local":
         task_path = os.path.join(RESULTS_DIR, f"quera_aquila_task_ids{suffix}.json")
         with open(task_path, "w", encoding="utf-8") as f:
             json.dump({
@@ -319,8 +381,9 @@ def _plot(y_true, pred_sim, pred_dev, pers, R_sim, R_dev, res, dev_label, suffix
 def _build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--device", default="local", choices=["local", "aquila"],
-                   help="local AHS simulator (free) or real QuEra Aquila")
+    p.add_argument("--device", default="local",
+                   choices=["local", "aquila", "qbraid_aquila"],
+                   help="local AHS, direct AWS Aquila, or token-backed qBraid Aquila")
     p.add_argument("--atoms", type=int, default=5)  # tuned winner (quera_tune.py): 5 atoms random2d
     p.add_argument("--geometry", default="random2d", choices=["chain", "ring", "random2d"])
     p.add_argument("--shots", type=int, default=100)
@@ -332,8 +395,12 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="suffix for CSV/NPZ/plot outputs")
     p.add_argument("--correction-strength", type=float, default=1.0,
                    help="pre-locked multiplier on the predicted baseline residual")
+    p.add_argument("--readout-alpha", type=float, default=None,
+                   help="lock Ridge alpha instead of selecting it by training CV")
     p.add_argument("--hardware-calibration-rows", type=int, default=0,
                    help="first measured rows used only to recalibrate correction strength")
+    p.add_argument("--feature-calibration-rows", type=int, default=0,
+                   help="first measured rows for label-free device-to-local feature alignment")
     p.add_argument("--strength-min", type=float, default=-0.25)
     p.add_argument("--strength-max", type=float, default=1.25)
     p.add_argument("--strength-steps", type=int, default=301)

@@ -16,6 +16,12 @@ NOT run the gate-based reservoir circuits — they are flagged [analog] below.
 from __future__ import annotations
 
 import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from src.qrc.hardware_backend import qbraid_api_key
 
 # Analog (neutral-atom / AHS) devices that cannot run gate circuits.
 _ANALOG = ("quera", "pasqal")
@@ -32,7 +38,7 @@ def main() -> None:
 
     from qbraid.runtime import QbraidProvider
 
-    provider = QbraidProvider()
+    provider = QbraidProvider(api_key=qbraid_api_key())
     rows = []
     for d in provider.get_devices():
         try:
