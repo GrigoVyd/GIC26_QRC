@@ -87,6 +87,7 @@ def counts_to_features(
     n_qubits: int,
     n_shots: int,
     reverse_bits: bool = False,
+    max_order: int = 2,
 ) -> np.ndarray:
     """
     Rebuild the (Z, ZZ) reservoir feature matrix from a list of count dicts.
@@ -101,7 +102,7 @@ def counts_to_features(
         shots = sum(counts.values()) or n_shots
         if reverse_bits:
             counts = {k[::-1]: v for k, v in counts.items()}
-        rows.append(_observables_from_counts(counts, n_qubits, shots))
+        rows.append(_observables_from_counts(counts, n_qubits, shots, max_order))
     return np.asarray(rows)
 
 
@@ -120,7 +121,10 @@ def statevector_features(reservoir, X: np.ndarray) -> np.ndarray:
             qc = reservoir._build_circuit(x, add_measurement=False)
         except TypeError:
             qc = reservoir._build_circuit(x)
-        rows.append(_observables_from_sv(Statevector(qc), reservoir.n_qubits))
+        rows.append(_observables_from_sv(
+            Statevector(qc), reservoir.n_qubits,
+            getattr(reservoir, "observable_order", 2),
+        ))
     return np.asarray(rows)
 
 
@@ -133,6 +137,7 @@ def calibrate_bit_order(
     reference_features: np.ndarray,
     n_qubits: int,
     n_shots: int,
+    max_order: int = 2,
 ) -> bool:
     """
     Decide whether returned bitstrings need reversing to match the reference.
@@ -142,8 +147,10 @@ def calibrate_bit_order(
     ``reference_features`` (lower mean-abs error). Eliminates a whole class of
     silent endianness bugs when moving between backends.
     """
-    feats_fwd = counts_to_features(counts_list, n_qubits, n_shots, reverse_bits=False)
-    feats_rev = counts_to_features(counts_list, n_qubits, n_shots, reverse_bits=True)
+    feats_fwd = counts_to_features(
+        counts_list, n_qubits, n_shots, reverse_bits=False, max_order=max_order)
+    feats_rev = counts_to_features(
+        counts_list, n_qubits, n_shots, reverse_bits=True, max_order=max_order)
     err_fwd = float(np.mean(np.abs(feats_fwd - reference_features)))
     err_rev = float(np.mean(np.abs(feats_rev - reference_features)))
     return err_rev < err_fwd
@@ -301,6 +308,8 @@ class QbraidExecutor:
             jid = getattr(job, "id", None) or getattr(job, "job_id", None)
             if jid is not None:
                 self.submitted_job_ids.append(str(jid))
+                self._log(f"    submitted job id: {jid}")
+        self._persist_job_ids()
 
         counts: list[dict] = []
         for job in jobs:
@@ -313,20 +322,40 @@ class QbraidExecutor:
                 except Exception:
                     pass
             result = job.result()
-            counts.append(self._extract_counts(result))
+            counts.append(self._extract_counts(result, self.shots))
         return counts
 
     @staticmethod
-    def _extract_counts(result) -> dict:
+    def _extract_counts(result, shots: int) -> dict:
         """Pull a {bitstring: count} dict out of a qBraid Result object."""
         data = getattr(result, "data", result)
         for attr in ("get_counts", "measurement_counts"):
             fn = getattr(data, attr, None)
             if callable(fn):
-                c = fn()
-                return dict(c)
+                try:
+                    c = fn()
+                    return dict(c)
+                except ValueError:
+                    pass
             if fn is not None:  # measurement_counts may be a property/dict
                 return dict(fn)
+        probs_fn = getattr(data, "get_probabilities", None)
+        if callable(probs_fn):
+            try:
+                probs = dict(probs_fn())
+                return {str(k): int(round(float(v) * shots)) for k, v in probs.items()}
+            except ValueError:
+                pass
+        probs = getattr(data, "probabilities", None)
+        if probs is not None:
+            return {str(k): int(round(float(v) * shots)) for k, v in dict(probs).items()}
+        measurements = getattr(data, "measurements", None)
+        if measurements is not None:
+            out: dict[str, int] = {}
+            for row in measurements:
+                bitstring = "".join(str(int(b)) for b in row)
+                out[bitstring] = out.get(bitstring, 0) + 1
+            return out
         raise AttributeError(
             "Could not extract counts from result; inspect result.data attributes "
             f"(have: {dir(data)})."

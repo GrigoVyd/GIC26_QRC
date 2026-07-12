@@ -1,0 +1,3 @@
+System,Window,Status,RMSE,Claim
+Transverse-field annealer QRC (3-seed),full 746 test,simulation advantage candidate,0.0078439860650036,beats full-window GARCH; requires annealing dynamics
+Amplify AE signed-Ising hybrid,50 train / 10 test,executed cloud GPU smoke test,0.0298905376630414,"execution proof; classical Ising ablation, not quantum advantage"

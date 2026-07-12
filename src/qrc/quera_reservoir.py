@@ -143,6 +143,7 @@ class QueraReservoir:
         self.global_detuning = global_detuning
         self.local_detuning_max = local_detuning_max
         self.seed = seed
+        self.submitted_task_ids: list[str] = []
 
         self._coords = self._build_coords(np.random.RandomState(seed))
 
@@ -306,7 +307,13 @@ class QueraReservoir:
         for k, prog in enumerate(programs):
             if not local:
                 prog = prog.discretize(dev)         # snap to Aquila's value grid
-            result = dev.run(prog, shots=shots).result()
+            task = dev.run(prog, shots=shots)
+            task_id = getattr(task, "id", None) or getattr(task, "arn", None)
+            if callable(task_id):
+                task_id = task_id()
+            if task_id is not None and not local:
+                self.submitted_task_ids.append(str(task_id))
+            result = task.result()
             feats.append(self.features_from_measurements(result.measurements))
             if verbose:
                 print(f"    sample {k+1}/{len(programs)} done", flush=True)

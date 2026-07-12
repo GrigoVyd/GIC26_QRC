@@ -1,0 +1,31 @@
+{
+  "data_source": "yfinance:SPY:2010-01-01:2024-12-31",
+  "evaluation_feature_source": "exact_ground_proxy",
+  "paid_cloud_solves_reused": 0,
+  "feature_corr_ground_vs_ae": 1.0,
+  "exact_feature_match_fraction": 1.0,
+  "selected_include_classical_x": true,
+  "selected_alpha": 100.0,
+  "selected_strength": 0.5,
+  "validation_gain_mean_percent": 4.922378534332181,
+  "validation_gain_min_percent": 2.9280128060065813,
+  "garch_rmse": 0.008321073468232356,
+  "optimizer_matched_metrics": {
+    "RMSE": 0.00842970564408652,
+    "MAE": 0.004575356232381674,
+    "R2": 0.9565799341389882,
+    "NMSE": 0.043420065861011735,
+    "QLIKE": 0.01766803650834502
+  },
+  "optimizer_matched_gain_vs_garch_percent": -1.3055067506481277,
+  "iqm_locked_alpha": 300.0,
+  "iqm_locked_strength": 0.105,
+  "iqm_locked_metrics": {
+    "RMSE": 0.008322795188359374,
+    "MAE": 0.0045197037631007275,
+    "R2": 0.9576743074351088,
+    "NMSE": 0.04232569256489111,
+    "QLIKE": 0.016642476502354807
+  },
+  "iqm_locked_gain_vs_garch_percent": -0.020691081908981054
+}

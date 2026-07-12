@@ -12,8 +12,8 @@ the Ridge readout already consumes.
 One reservoir, three backends (multiple strategies):
   * "sa"      — dwave.samplers.SimulatedAnnealingSampler. Local, free, classical
                 finite-temperature sampling. Fast (no ODE), good for validation.
-  * "amplify" — Fixstars Amplify Annealing Engine (GPU Ising machine, cloud). Fast,
-                accessible (free tier); classical signed-coupling.
+  * "amplify" — Fixstars Amplify Annealing Engine (GPU Ising machine, cloud).
+  * "toshiba" — Toshiba SQBM+ simulated-bifurcation machine (cloud).
   * "dwave"   — D-Wave Advantage (real quantum annealer, Leap). The faithful
                 quantum-dynamics platform closest to the Phase-2 annealer sim.
   * "exact"   — dimod.ExactSolver Boltzmann expectations (n<=~12), the noiseless
@@ -30,7 +30,21 @@ from __future__ import annotations
 
 import os
 import numpy as np
+from datetime import timedelta
+from pathlib import Path
 from typing import Literal, Optional
+
+
+def _credential(name: str) -> str:
+    """Read a credential from the environment or a git-ignored local file."""
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    secret_file = Path(__file__).resolve().parents[2] / ".secrets" / name.lower()
+    try:
+        return secret_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
 
 
 class IsingReservoir:
@@ -69,6 +83,7 @@ class IsingReservoir:
         rng = np.random.RandomState(seed)
         self._edges = self._build_edges(rng)
         self._J = rng.uniform(-1.0, 1.0, len(self._edges) or 1) * J_scale  # signed!
+        self.last_sampling_stats: list[dict[str, float]] = []
 
     def _build_edges(self, rng) -> list[tuple[int, int]]:
         n = self.n_spins
@@ -117,6 +132,13 @@ class IsingReservoir:
         p = np.exp(-self.beta * (E - E.min())); p /= p.sum()    # Boltzmann at beta
         return ss.record.sample.astype(float), p
 
+    def _sample_ground(self, h, J):
+        """Deterministic exact optimizer proxy for Amplify AE (small n only)."""
+        import dimod
+        ss = dimod.ExactSolver().sample_ising(h, J)
+        k = int(np.argmin(ss.record.energy))
+        return ss.record.sample[k:k + 1].astype(float), np.ones(1)
+
     def _sample_dwave(self, h, J, num_reads, anneal_time=20.0):
         from dwave.system import DWaveSampler, EmbeddingComposite
         sampler = EmbeddingComposite(DWaveSampler())            # needs Leap token
@@ -124,31 +146,49 @@ class IsingReservoir:
         return ss.record.sample.astype(float), ss.record.num_occurrences.astype(float)
 
     # Fixstars Amplify exposes many Ising machines behind ONE API (solve(model,
-    # client)). "amplify" -> Fixstars AE (GPU); "toshiba" -> Toshiba SQBM2 (classical
-    # SBM, GPU/FPGA); "fujitsu"/"hitachi"/"nec"/"dwave_amplify" also available. All
+    # client)). "amplify" -> Amplify AE v1 (GPU);
+    # "toshiba" -> Toshiba SQBM2 (classical SBM, GPU/FPGA);
+    # "fujitsu"/"hitachi"/"nec"/"dwave_amplify" also available. All
     # classical (SBM/AE) machines are the same *tier* as SA -- no transverse field,
     # so they reproduce the classical-competitive result but not the GARCH-beating
     # edge (that needs D-Wave quantum annealing via the "dwave" backend).
     _AMPLIFY_CLIENTS = {
-        "amplify": "FixstarsClient", "toshiba": "ToshibaSQBM2Client",
+        "amplify": "AmplifyAEClient", "toshiba": "ToshibaSQBM2Client",
         "fujitsu": "FujitsuDA4Client", "hitachi": "HitachiClient",
         "nec": "NECVA2Client", "dwave_amplify": "DWaveSamplerClient",
     }
 
-    def _make_amplify_client(self, kind: str, timeout_ms: int):
+    def _make_amplify_client(self, kind: str, timeout_ms: int, num_reads: int = 100):
         import amplify
         client = getattr(amplify, self._AMPLIFY_CLIENTS[kind])()
         # token: a kind-specific env var (e.g. TOSHIBA_TOKEN) or the Amplify token
-        token = os.environ.get(f"{kind.upper()}_TOKEN") or os.environ.get("AMPLIFY_TOKEN", "")
+        if kind == "amplify":
+            token = _credential("AMPLIFY_AE_TOKEN") or _credential("AMPLIFY_TOKEN")
+        else:
+            token = _credential(f"{kind.upper()}_TOKEN") or _credential("AMPLIFY_TOKEN")
         if token:
             client.token = token
         url = os.environ.get(f"{kind.upper()}_URL")
         if url:
             client.url = url
-        # timeout / multi-sample knobs differ per client; set what exists
+        if kind == "amplify":
+            try:
+                client.parameters.time_limit_ms = timedelta(milliseconds=timeout_ms)
+            except Exception:
+                pass
+            for attr, val in (("num_gpus", 1), ("duplicate_solutions", True)):
+                try:
+                    if hasattr(client.parameters, attr):
+                        setattr(client.parameters, attr, val)
+                except Exception:
+                    pass
+            return client
+
+        # Timeout / multi-sample knobs differ per client; set what exists.
+        timeout_value = max(1, int(np.ceil(timeout_ms / 1000))) if kind == "toshiba" else timeout_ms
         p = client.parameters
-        for attr, val in (("timeout", timeout_ms), ("num_outputs", 0),
-                          ("multishot", True), ("maxout", 100)):
+        for attr, val in (("timeout", timeout_value),
+                          ("multishot", True), ("maxout", int(num_reads))):
             try:
                 if hasattr(p, attr):
                     setattr(p, attr, val)
@@ -164,7 +204,7 @@ class IsingReservoir:
         for (i, j), Jij in zip(self._edges, self._J):
             obj = obj + float(Jij) * s[i] * s[j]
         if client is None:
-            client = self._make_amplify_client(kind, timeout_ms)
+            client = self._make_amplify_client(kind, timeout_ms, num_reads=num_reads)
         try:
             result = amplify.solve(obj, client)
         except RuntimeError as exc:
@@ -187,6 +227,10 @@ class IsingReservoir:
         if not rows:                                   # only the best solution returned
             rows.append(np.asarray(s.evaluate(result.best.values), dtype=float))
         sample = np.asarray(rows, dtype=float)
+        self.last_sampling_stats.append({
+            "returned_states": float(len(sample)),
+            "unique_states": float(len(np.unique(sample, axis=0))),
+        })
         return sample, np.ones(len(sample))
 
     def _sample(self, x, backend, num_reads, **kw):
@@ -195,6 +239,8 @@ class IsingReservoir:
             return self._sample_sa(h, J, num_reads, **kw)
         if backend == "exact":
             return self._sample_exact(h, J)
+        if backend == "ground":
+            return self._sample_ground(h, J)
         if backend == "dwave":
             return self._sample_dwave(h, J, num_reads, **kw)
         if backend in self._AMPLIFY_CLIENTS:           # amplify / toshiba / fujitsu / ...
@@ -205,6 +251,7 @@ class IsingReservoir:
     def transform(self, X: np.ndarray, backend: str = "sa", num_reads: int = 200,
                   verbose: bool = False, **kw) -> np.ndarray:
         X = np.asarray(X, dtype=float)
+        self.last_sampling_stats = []
         feats = []
         for k, x in enumerate(X):
             sample, occ = self._sample(x, backend, num_reads, **kw)

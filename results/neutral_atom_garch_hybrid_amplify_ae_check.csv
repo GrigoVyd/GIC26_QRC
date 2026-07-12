@@ -1,0 +1,4 @@
+Model,data_source,n_train,n_test,RMSE,MAE,R2,NMSE,QLIKE,alpha,feature_corr_vs_sa,n_cloud_solves,train_feature_source,mean_returned_states,min_returned_states,mean_unique_states,min_unique_states,correction_strength,hardware_calibration_rows,evaluation_rows,ising_backend,input_scale,beta,J_scale,connectivity
+"GARCH(1,1) standalone",yfinance:SPY:2010-01-01:2024-12-31,400,10,0.018856569509051253,0.00885341904064145,0.49650316719806986,0.5034968328019301,0.12671427846668465,,,,,,,,,,,,,,,,
+Ridge on GARCH-residual (ablation),yfinance:SPY:2010-01-01:2024-12-31,400,10,0.02007120953749152,0.00905931484916937,0.42954884990689624,0.5704511500931038,0.1587616811020103,,,,,,,,,,,,,,,,
+Ising machine signed-J (amplify) on GARCH-residual,yfinance:SPY:2010-01-01:2024-12-31,400,10,0.02016931740792208,0.010002518048135813,0.42395850146066916,0.5760414985393308,0.15502380044182215,1000.0,0.8455023784360326,10.0,local_sa,11.2,9.0,1.0,1.0,1.0,0.0,10.0,amplify,1.0,1.0,1.0,all-to-all

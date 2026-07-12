@@ -11,10 +11,21 @@ Returns (X_train, X_test, y_train, y_test) with chronological split.
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 
 import numpy as np
 import pandas as pd
+
+
+def _configure_yfinance_cache(yf) -> None:
+    """Keep yfinance's SQLite caches in a writable, project-local directory."""
+    cache_dir = Path(__file__).resolve().parents[2] / ".cache" / "yfinance"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        yf.cache.set_cache_location(str(cache_dir))
+    except AttributeError:  # compatibility with older yfinance releases
+        yf.set_tz_cache_location(str(cache_dir))
 
 
 def load_financial_data(
@@ -38,6 +49,8 @@ def load_financial_data(
     """
     try:
         import yfinance as yf
+
+        _configure_yfinance_cache(yf)
 
         raw = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
         prices = raw["Close"].squeeze().dropna().values
@@ -162,6 +175,8 @@ def load_financial_data_v2(
     try:
         import yfinance as yf
 
+        _configure_yfinance_cache(yf)
+
         raw = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
         prices = raw["Close"].squeeze().dropna().values
 
@@ -169,6 +184,7 @@ def load_financial_data_v2(
             raise ValueError("Too few data points.")
 
         log_ret_full = np.diff(np.log(prices + 1e-10))  # length = T-1
+        data_source = f"yfinance:{ticker}:{start}:{end}"
 
     except Exception as exc:
         warnings.warn(
@@ -177,6 +193,7 @@ def load_financial_data_v2(
         log_ret_full, _ = _synthetic_garch(n=3000, vol_window=vol_window, seed=0)
         # _synthetic_garch already truncated the warmup; we need the raw returns here:
         log_ret_full = _synthetic_garch_raw(n=3000, seed=0)
+        data_source = "synthetic_garch:seed=0:n=3000"
 
     # Realized volatility (annualised, vol_window-day rolling std)
     # rv_full[i] uses log_ret_full[i - vol_window + 1 : i + 1]
@@ -322,6 +339,7 @@ def load_financial_data_v2(
         "log_returns_full": log_ret_full,
         "test_first_ret_idx": test_first_ret_idx,
         "vol_window": vol_window,
+        "data_source": data_source,
     }
 
 

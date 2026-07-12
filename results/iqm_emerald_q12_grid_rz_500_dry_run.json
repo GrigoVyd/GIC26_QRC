@@ -1,0 +1,45 @@
+{
+  "device": "emerald",
+  "circuits": 120,
+  "shots": 500,
+  "total_shots": 60000,
+  "layout_indices": [
+    16,
+    17,
+    18,
+    19,
+    24,
+    25,
+    26,
+    27,
+    32,
+    33,
+    34,
+    35
+  ],
+  "layout_names": [
+    "QB17",
+    "QB18",
+    "QB19",
+    "QB20",
+    "QB25",
+    "QB26",
+    "QB27",
+    "QB28",
+    "QB33",
+    "QB34",
+    "QB35",
+    "QB36"
+  ],
+  "cz_fidelity_mean": 0.9933492479501849,
+  "cz_fidelity_min": 0.9876316815163468,
+  "compiled_depth": 38,
+  "compiled_ops": {
+    "r": 70,
+    "cz": 34,
+    "measure": 12,
+    "barrier": 1
+  },
+  "swap_count": 0,
+  "submitted": false
+}

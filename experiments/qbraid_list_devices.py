@@ -26,6 +26,8 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--online", action="store_true", help="only show ONLINE devices")
     p.add_argument("--gate", action="store_true", help="hide analog (QuEra/Pasqal) devices")
+    p.add_argument("--pricing", action="store_true",
+                   help="show per-task / per-shot pricing reported by qBraid")
     args = p.parse_args()
 
     from qbraid.runtime import QbraidProvider
@@ -47,14 +49,19 @@ def main() -> None:
             continue
         if args.gate and analog:
             continue
-        rows.append((dev_id, kind, qubits, status, queue))
+        pricing = md.get("pricing", {}) or {}
+        per_task = pricing.get("perTask", pricing.get("per_task", "?"))
+        per_shot = pricing.get("perShot", pricing.get("per_shot", "?"))
+        rows.append((dev_id, kind, qubits, status, queue, per_task, per_shot))
 
     rows.sort(key=lambda r: (r[1], r[0]))
-    print(f"{'device_id':<42} {'kind':<9} {'qubits':<7} {'status':<11} queue")
-    print("-" * 82)
+    suffix = "  per_task  per_shot" if args.pricing else ""
+    print(f"{'device_id':<42} {'kind':<9} {'qubits':<7} {'status':<11} queue{suffix}")
+    print("-" * (105 if args.pricing else 82))
     for r in rows:
         tag = "  [analog: gate circuits NOT supported]" if r[1] == "analog" else ""
-        print(f"{r[0]:<42} {r[1]:<9} {r[2]:<7} {r[3]:<11} {r[4]}{tag}")
+        price = f"  {str(r[5]):<8}  {r[6]}" if args.pricing else ""
+        print(f"{r[0]:<42} {r[1]:<9} {r[2]:<7} {r[3]:<11} {r[4]}{price}{tag}")
     print(f"\nTotal: {len(rows)} devices")
 
 

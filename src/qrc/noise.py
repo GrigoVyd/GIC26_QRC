@@ -11,6 +11,7 @@ from qiskit_aer.noise import (
     NoiseModel,
     depolarizing_error,
     amplitude_damping_error,
+    ReadoutError,
 )
 
 
@@ -62,6 +63,28 @@ def combined_noise(
 
     nm.add_all_qubit_quantum_error(err_1q, ["rx", "ry", "rz", "h"])
     nm.add_all_qubit_quantum_error(err_dep_2q, ["cx"])
+    return nm
+
+
+def iqm_effective_noise(
+    p_single: float = 0.001,
+    p_two: float = 0.01,
+    error_0_to_1: float = 0.01,
+    error_1_to_0: float = 0.01,
+) -> NoiseModel:
+    """Effective logical IQM model with gate and asymmetric readout errors.
+
+    The logical QRC uses CX decompositions; ``p_two`` therefore represents the
+    aggregate error seen by each logical CX after native CZ compilation. The
+    parameter is calibrated against hardware feature distortion rather than
+    interpreted as a direct copy of the device's reported CZ infidelity.
+    """
+    nm = depolarizing_noise(p_single=p_single, p_two=p_two)
+    readout = ReadoutError([
+        [1.0 - error_0_to_1, error_0_to_1],
+        [error_1_to_0, 1.0 - error_1_to_0],
+    ])
+    nm.add_all_qubit_readout_error(readout)
     return nm
 
 
