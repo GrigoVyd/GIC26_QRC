@@ -36,6 +36,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -51,6 +52,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 
 from src.qrc.quera_reservoir import QueraReservoir
+from src.qrc.hardware_backend import qbraid_api_key
 from src.data.loaders import load_financial_data_v2, invert_target
 from src.baselines.classical import EchoStateNetwork, regression_metrics, print_metrics
 
@@ -81,10 +83,10 @@ def _cv_alpha(R_tr, y_tr, alphas=_ALPHAS, n_splits=5):
     return best_alpha
 
 
-def fit_readout(R_tr, X_tr_full, y_tr):
+def fit_readout(R_tr, X_tr_full, y_tr, alpha_override=None):
     R_aug = np.hstack([R_tr, X_tr_full])
     sc = StandardScaler(); R_s = sc.fit_transform(R_aug)
-    alpha = _cv_alpha(R_s, y_tr)
+    alpha = float(alpha_override) if alpha_override is not None else _cv_alpha(R_s, y_tr)
     ridge = Ridge(alpha=alpha); ridge.fit(R_s, y_tr)
     return ridge, sc, alpha
 
@@ -100,14 +102,18 @@ def run(args) -> None:
     print("  GIC 2026 PHASE 3 -- QRC on QuEra Aquila (neutral-atom analog)")
     print("=" * 78)
 
+    use_garch = args.hybrid_target == "garch"
     d = load_financial_data_v2(
-        delay=5, log_target=True, include_har=True,
-        include_log_har=True, residual_target=True,
+        delay=5, log_target=True, include_har=True, include_log_har=True,
+        residual_target=not use_garch,
+        include_garch_proxy=use_garch,
+        garch_residual_target=use_garch,
     )
     X_tr_full, X_te_full = d["X_train"], d["X_test"]
     y_tr = d["y_train"]
     y_te_raw_all, pers_te_all = d["y_test_raw"], d["persistence_test"]
     log_pers_te_all = d["log_persistence_test"]
+    log_garch_te_all = d["log_garch_proxy_test"]
     transform = d["target_transform"]
 
     n = args.atoms
@@ -118,13 +124,23 @@ def run(args) -> None:
     sl = slice(len(X_te_full) - n_te, len(X_te_full))
     X_te_full = X_te_full[sl]; y_te_raw = y_te_raw_all[sl]
     pers_te = pers_te_all[sl]; log_pers_te = log_pers_te_all[sl]
-    to_vol = lambda y: invert_target(y, transform, log_persistence=log_pers_te)
+    log_garch_te = log_garch_te_all[sl]
+    if use_garch:
+        to_vol_scaled = lambda y, s=1.0: invert_target(
+            s * y, transform, log_garch_proxy=log_garch_te
+        )
+    else:
+        to_vol_scaled = lambda y, s=1.0: invert_target(
+            s * y, transform, log_persistence=log_pers_te
+        )
+    to_vol = lambda y: to_vol_scaled(y, 1.0)
 
     res = QueraReservoir(n_atoms=n, geometry=args.geometry, seed=args.seed,
                          total_time=args.total_time, rabi_max=args.rabi_max)
     print(f"\nReservoir : {res}")
     print(f"Train     : {len(X_tr_full)} samples (readout)  |  Test (hardware): {n_te} (most recent)")
     print(f"Target    : {transform}\n")
+    print(f"Data      : {d.get('data_source', 'unknown')}\n")
 
     sc_in = StandardScaler().fit(X_tr_full[:, :n])
     Xtr_in = sc_in.transform(X_tr_full[:, :n])
@@ -133,7 +149,12 @@ def run(args) -> None:
     # ---- Footprint / dry-run ----
     est_cost = n_te * (_AQUILA_PER_TASK + args.shots * _AQUILA_PER_SHOT)
     print(f"[1] Aquila footprint: {n_te} tasks x {args.shots} shots "
-          f"(~${est_cost:.2f} at list price; billed via qBraid credits)")
+          f"(~${est_cost:.2f} = ~{est_cost * 100:.0f} qBraid credits at list price)")
+    if args.device != "local" and est_cost * 100 > args.credit_budget:
+        raise RuntimeError(
+            f"Estimated Aquila charge {est_cost * 100:.0f} qBraid credits "
+            f"exceeds the {args.credit_budget:.0f}-credit cap. No tasks submitted."
+        )
     if args.dry_run:
         prog = res.build_program(Xte_in[0])
         print(f"    Program OK: {n} atoms, geometry='{args.geometry}', T={args.total_time*1e6:.1f}us")
@@ -161,29 +182,97 @@ def run(args) -> None:
                 "Refusing to run on Aquila without --allow-qpu (spends credits: "
                 f"{n_te} tasks x {args.shots} shots ~ ${est_cost:.2f})."
             )
-        from braket.aws import AwsDevice
-        from braket.devices import Devices
-        device = AwsDevice(Devices.QuEra.Aquila)
-        md = device.properties.service
+        if args.device == "qbraid_aquila":
+            from qbraid.runtime import QbraidProvider
+            device = QbraidProvider(api_key=qbraid_api_key()).get_device(
+                "aws:quera:qpu:aquila"
+            )
+            md = device.metadata()
+            if str(md.get("status", "")).upper() != "ONLINE":
+                raise RuntimeError(f"qBraid Aquila is not online: {md.get('status')}")
+            pricing = md.get("pricing", {}) or {}
+            per_task = float(pricing.get("perTask", 30.0))
+            per_shot = float(pricing.get("perShot", 1.0))
+            checkpoint_path = os.path.join(
+                RESULTS_DIR, f"quera_aquila_checkpoint_{args.result_tag or 'run'}.json"
+            )
+            completed = 0
+            if os.path.exists(checkpoint_path):
+                with open(checkpoint_path, encoding="utf-8") as f:
+                    completed = int(json.load(f).get("completed_rows", 0))
+            remaining = max(0, n_te - completed)
+            live_credits = remaining * (per_task + args.shots * per_shot)
+            print(f"    qBraid live pricing: {per_task} credits/task + "
+                  f"{per_shot} credits/shot; {remaining} remaining tasks = "
+                  f"{live_credits:.0f} credits")
+            if live_credits > args.credit_budget:
+                raise RuntimeError(
+                    f"Live charge {live_credits:.0f} exceeds cap "
+                    f"{args.credit_budget:.0f}; no tasks submitted."
+                )
+        else:
+            from braket.aws import AwsDevice
+            from braket.devices import Devices
+            device = AwsDevice(Devices.QuEra.Aquila)
+            md = device.properties.service
+            checkpoint_path = None
         print(f"\n[3] Submitting {n_te} tasks to QuEra Aquila ...")
         t0 = time.time()
-        R_te_dev = res.transform(Xte_in, device=device, shots=args.shots, verbose=True)
+        R_te_dev = res.transform(
+            Xte_in, device=device, shots=args.shots, verbose=True,
+            checkpoint_path=checkpoint_path,
+        )
         print(f"    Aquila run done in {time.time()-t0:.0f}s")
         dev_label = "QuEra Aquila (hardware)"
         n_tasks = n_te
 
-    # ---- Feature fidelity vs local sim ----
+    # ---- Feature fidelity vs local sim + label-free affine transfer ----
+    R_te_dev_raw = R_te_dev.copy()
+    raw_corr = float(np.corrcoef(R_te_dev_raw.ravel(), R_te_local.ravel())[0, 1])
+    raw_mae = float(np.mean(np.abs(R_te_dev_raw - R_te_local)))
+    feature_scale, feature_bias = 1.0, 0.0
+    k_feat = args.feature_calibration_rows
+    if k_feat:
+        if not (0 < k_feat < n_te):
+            raise ValueError("--feature-calibration-rows must be between 1 and max-test-1")
+        A = np.column_stack([R_te_dev_raw[:k_feat].ravel(),
+                             np.ones(R_te_dev_raw[:k_feat].size)])
+        feature_scale, feature_bias = np.linalg.lstsq(
+            A, R_te_local[:k_feat].ravel(), rcond=None
+        )[0]
+        R_te_dev = feature_scale * R_te_dev_raw + feature_bias
     corr = float(np.corrcoef(R_te_dev.ravel(), R_te_local.ravel())[0, 1])
     mae_feat = float(np.mean(np.abs(R_te_dev - R_te_local)))
     print(f"\n[4] Feature fidelity ({dev_label} vs local sim): "
-          f"corr={corr:.4f}  mean abs err={mae_feat:.4f}")
+          f"raw corr={raw_corr:.4f}, raw MAE={raw_mae:.4f}; "
+          f"aligned corr={corr:.4f}, aligned MAE={mae_feat:.4f}")
+    if k_feat:
+        print(f"    Label-free feature transfer on first {k_feat} rows: "
+              f"scale={feature_scale:.4f}, bias={feature_bias:.4f}")
 
     # ---- Readout + scoring ----
     print("\n[5] Readout (trained on local-sim features) ...")
-    ridge, sc_r, alpha = fit_readout(R_tr_local, X_tr_full, y_tr)
+    ridge, sc_r, alpha = fit_readout(
+        R_tr_local, X_tr_full, y_tr, alpha_override=args.readout_alpha
+    )
     print(f"    Ridge alpha (CV) = {alpha}")
-    pred_sim = to_vol(apply_readout(ridge, sc_r, R_te_local, X_te_full))
-    pred_dev = to_vol(apply_readout(ridge, sc_r, R_te_dev, X_te_full))
+    pred_sim_res = apply_readout(ridge, sc_r, R_te_local, X_te_full)
+    pred_dev_res = apply_readout(ridge, sc_r, R_te_dev, X_te_full)
+    sim_strength = args.correction_strength
+    dev_strength = sim_strength
+    k_cal = args.hardware_calibration_rows
+    if k_cal:
+        if not (0 < k_cal < n_te):
+            raise ValueError("--hardware-calibration-rows must be between 1 and max-test-1")
+        grid = np.linspace(args.strength_min, args.strength_max, args.strength_steps)
+        scores = [np.sqrt(np.mean(
+            (to_vol_scaled(pred_dev_res, s)[:k_cal] - y_te_raw[:k_cal]) ** 2
+        )) for s in grid]
+        dev_strength = float(grid[int(np.argmin(scores))])
+        print(f"    Device correction calibration: first {k_cal} rows -> "
+              f"strength={dev_strength:.3f} (excluded from evaluation)")
+    pred_sim = to_vol_scaled(pred_sim_res, sim_strength)
+    pred_dev = to_vol_scaled(pred_dev_res, dev_strength)
 
     rows = []
 
@@ -192,24 +281,67 @@ def run(args) -> None:
         print_metrics(f"{name:<34}", m)
         rows.append({"Model": name, **m, **(extra or {})})
 
-    print("\n[6] Scoring on the test window\n" + "-" * 78)
-    record("Persistence", pers_te.copy())
+    k_exclude = max(k_cal, k_feat)
+    eval_sl = slice(k_exclude, None)
+    y_te_raw_all_scoring = y_te_raw
+    y_te_raw = y_te_raw[eval_sl]
+    print(f"\n[6] Scoring on {len(y_te_raw)} evaluation rows "
+          f"({k_exclude} calibration rows excluded)\n" + "-" * 78)
+    record("Persistence", pers_te[eval_sl].copy())
+    if use_garch:
+        record("GARCH proxy (zero residual)", np.exp(log_garch_te[eval_sl]))
+    linear = Ridge(alpha=1.0).fit(d["X_train"], d["y_train"])
+    record("Ridge residual ablation", to_vol(linear.predict(X_te_full))[eval_sl])
     esn = EchoStateNetwork(n_reservoir=200, seed=args.seed); esn.fit(d["X_train"], d["y_train"])
-    record("ESN (200 nodes)", invert_target(esn.predict(X_te_full), transform, log_persistence=log_pers_te))
-    record(f"QuEra {n}atom -- local AHS sim", pred_sim)
-    record(f"QuEra {n}atom -- {dev_label}", pred_dev,
-           extra={"corr_vs_sim": corr, "feat_mae": mae_feat, "n_tasks": n_tasks, "shots": args.shots})
+    record("ESN (200 nodes)", to_vol(esn.predict(X_te_full))[eval_sl])
+    record(f"QuEra {n}atom -- local AHS sim", pred_sim[eval_sl],
+           extra={"correction_strength": sim_strength})
+    record(f"QuEra {n}atom -- {dev_label}", pred_dev[eval_sl],
+           extra={"corr_vs_sim": corr, "feat_mae": mae_feat, "n_tasks": n_tasks,
+                  "shots": args.shots, "correction_strength": dev_strength,
+                  "hardware_calibration_rows": k_cal,
+                  "feature_calibration_rows": k_feat,
+                  "feature_corr_raw": raw_corr, "feature_mae_raw": raw_mae,
+                  "feature_affine_scale": feature_scale,
+                  "feature_affine_bias": feature_bias})
 
     df = pd.DataFrame(rows)
-    out_csv = os.path.join(RESULTS_DIR, "quera_aquila_summary.csv")
+    suffix = f"_{args.result_tag}" if args.result_tag else ""
+    out_csv = os.path.join(RESULTS_DIR, f"quera_aquila_summary{suffix}.csv")
     df.to_csv(out_csv, index=False)
     print(f"\n  Saved -> {os.path.relpath(out_csv)}")
 
-    _plot(y_te_raw, pred_sim, pred_dev, pers_te, R_te_local, R_te_dev, res, dev_label)
+    out_npz = os.path.join(RESULTS_DIR, f"quera_aquila_features{suffix}.npz")
+    np.savez_compressed(
+        out_npz, R_test_local=R_te_local, R_test_device_raw=R_te_dev_raw,
+        R_test_device=R_te_dev,
+        X_test=X_te_full, y_test_raw=y_te_raw_all_scoring,
+        hybrid_target=args.hybrid_target, device=str(device), shots=args.shots,
+        pred_residual_local=pred_sim_res, pred_residual_device=pred_dev_res,
+        correction_strength_local=sim_strength,
+        correction_strength_device=dev_strength,
+        hardware_calibration_rows=k_cal,
+        feature_calibration_rows=k_feat,
+        feature_affine_scale=feature_scale, feature_affine_bias=feature_bias,
+    )
+    print(f"  Saved -> {os.path.relpath(out_npz)}")
+    if args.device != "local":
+        task_path = os.path.join(RESULTS_DIR, f"quera_aquila_task_ids{suffix}.json")
+        with open(task_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "device": "aws:quera:qpu:aquila",
+                "shots": args.shots,
+                "hybrid_target": args.hybrid_target,
+                "task_ids": res.submitted_task_ids,
+            }, f, indent=2)
+        print(f"  Saved -> {os.path.relpath(task_path)}")
+
+    _plot(y_te_raw, pred_sim[eval_sl], pred_dev[eval_sl], pers_te[eval_sl],
+          R_te_local, R_te_dev, res, dev_label, suffix)
     print("\n--- Done ---")
 
 
-def _plot(y_true, pred_sim, pred_dev, pers, R_sim, R_dev, res, dev_label):
+def _plot(y_true, pred_sim, pred_dev, pers, R_sim, R_dev, res, dev_label, suffix=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -239,7 +371,7 @@ def _plot(y_true, pred_sim, pred_dev, pers, R_sim, R_dev, res, dev_label):
     ax2.set_title("Rydberg (Z, ZZ) feature fidelity"); ax2.legend(fontsize=8); ax2.grid(True, alpha=0.25)
 
     plt.tight_layout()
-    out = os.path.join(RESULTS_DIR, "quera_aquila_qrc.png")
+    out = os.path.join(RESULTS_DIR, f"quera_aquila_qrc{suffix}.png")
     fig.savefig(out, dpi=200, bbox_inches="tight")
     fig.savefig(out.replace(".png", "_doc.png"), dpi=1200, bbox_inches="tight")
     plt.close(fig)
@@ -249,12 +381,29 @@ def _plot(y_true, pred_sim, pred_dev, pers, R_sim, R_dev, res, dev_label):
 def _build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--device", default="local", choices=["local", "aquila"],
-                   help="local AHS simulator (free) or real QuEra Aquila")
+    p.add_argument("--device", default="local",
+                   choices=["local", "aquila", "qbraid_aquila"],
+                   help="local AHS, direct AWS Aquila, or token-backed qBraid Aquila")
     p.add_argument("--atoms", type=int, default=5)  # tuned winner (quera_tune.py): 5 atoms random2d
     p.add_argument("--geometry", default="random2d", choices=["chain", "ring", "random2d"])
     p.add_argument("--shots", type=int, default=100)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--hybrid-target", default="garch",
+                   choices=["garch", "persistence"],
+                   help="classical baseline whose log residual the analog QRC predicts")
+    p.add_argument("--result-tag", default="",
+                   help="suffix for CSV/NPZ/plot outputs")
+    p.add_argument("--correction-strength", type=float, default=1.0,
+                   help="pre-locked multiplier on the predicted baseline residual")
+    p.add_argument("--readout-alpha", type=float, default=None,
+                   help="lock Ridge alpha instead of selecting it by training CV")
+    p.add_argument("--hardware-calibration-rows", type=int, default=0,
+                   help="first measured rows used only to recalibrate correction strength")
+    p.add_argument("--feature-calibration-rows", type=int, default=0,
+                   help="first measured rows for label-free device-to-local feature alignment")
+    p.add_argument("--strength-min", type=float, default=-0.25)
+    p.add_argument("--strength-max", type=float, default=1.25)
+    p.add_argument("--strength-steps", type=int, default=301)
     p.add_argument("--total-time", type=float, default=4.0e-6, dest="total_time")
     p.add_argument("--rabi-max", type=float, default=1.5e7, dest="rabi_max")
     p.add_argument("--max-test", type=int, default=60, help="recent test days on hardware (0=all)")
@@ -263,6 +412,8 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="local-sim parallel workers (1=serial, -1=all cores; "
                         "auto-retries down + falls back to serial on low memory)")
     p.add_argument("--allow-qpu", action="store_true", help="REQUIRED to run on real Aquila")
+    p.add_argument("--credit-budget", type=float, default=100.0,
+                   help="hard qBraid-credit cap for Aquila (100 credits = $1)")
     p.add_argument("--dry-run", action="store_true", help="build a program + footprint only")
     return p
 

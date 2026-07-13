@@ -1,0 +1,7 @@
+Tier,System,Window,Physics,RMSE,QLIKE,Delta_vs_GARCH_%,Delta_vs_RidgeResidual_%,Interpretation
+Benchmark,"GARCH(1,1)",746 test,classical econometric prior,0.0079477473057669,0.0068626183848146,0.0,-1.2835259681014366,strong baseline
+Linear ablation,Ridge on GARCH residual,746 test,no reservoir,0.0080510850733979,0.0066757182738289,1.3002145596151324,0.0,checks whether residual target alone is enough
+Hybrid advantage candidate,"QRC annealer, 3-seed",746 test,transverse-field Ising + signed J,0.0078439860650036,0.0064450125217973,-1.3055427754731164,-2.572311763026683,only current GARCH-beating reservoir result
+Executed cloud Ising check,Amplify AE,50 train / 10 test,"classical signed Ising, no transverse field",0.0298905376630414,0.0026593010956156,-0.31151827232871226,5.492801429957559,"runs end-to-end, but does not beat residual ablation"
+Executed cloud Ising check,Toshiba SQBM+,50 train / 10 test,"classical signed Ising, no transverse field",0.029554769099864,0.002596433410107,-1.43134618082512,4.307772014929916,"runs end-to-end, but does not beat residual ablation"
+qBraid simulator execution,Gate QRC on qir-sv,120 test,"gate reservoir, not GARCH hybrid",0.0389829309079409,0.0050970617763336,,,execution/fidelity proof; beats persistence by 2.11%

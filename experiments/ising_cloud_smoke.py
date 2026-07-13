@@ -27,7 +27,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.qrc.ising_reservoir import IsingReservoir
+from src.qrc.ising_reservoir import IsingReservoir, _credential
 
 
 def main() -> None:
@@ -45,8 +45,8 @@ def main() -> None:
     p.add_argument("--timeout-ms", type=int, default=2000)
     args = p.parse_args()
 
-    token_var = f"{args.backend.upper()}_TOKEN"
-    has_token = bool(os.environ.get(token_var) or os.environ.get("AMPLIFY_TOKEN"))
+    token_var = "AMPLIFY_AE_TOKEN" if args.backend == "amplify" else f"{args.backend.upper()}_TOKEN"
+    has_token = bool(_credential(token_var) or _credential("AMPLIFY_TOKEN"))
     print(f"backend={args.backend} token_present={has_token}")
     if args.backend == "toshiba" and not os.environ.get("TOSHIBA_URL"):
         print("note: TOSHIBA_URL is not set; using the SDK default endpoint.")
@@ -67,6 +67,12 @@ def main() -> None:
         f"ok: features={R.shape} finite={np.isfinite(R).all()} "
         f"mean={float(R.mean()):.4f}"
     )
+    if res.last_sampling_stats:
+        stats = res.last_sampling_stats[-1]
+        print(
+            f"ensemble: returned={int(stats['returned_states'])} "
+            f"unique={int(stats['unique_states'])}"
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+Candidate,Configuration,Calibration_rows,Evaluation_rows,Correction_strength,GARCH_RMSE,Hybrid_RMSE,Gap_vs_GARCH_%,At_GARCH_level_1pct
+Pasqal analog QRC,"5 atoms, global detuning",20,100,-0.0499999999999999,0.0080112663763477,0.0080143163289741,0.03807079284499082,True
+Signed-Ising — Amplify candidate,"10 spins, all-to-all signed J",20,100,0.015,0.0080112647509753,0.0080151870554767,0.04895986617996506,True
+Gate QRC — Garnet candidate,5q L3 random seed47,20,100,0.47,0.0080146503385768,0.0080231475207459,0.10602062236204635,True

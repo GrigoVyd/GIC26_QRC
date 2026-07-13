@@ -1,0 +1,37 @@
+{
+  "job_id": "019f5691-063b-7a11-8bbc-db5057b79259",
+  "device": "emerald",
+  "circuits": 120,
+  "shots": 500,
+  "layout_indices": [
+    16,
+    17,
+    18,
+    24,
+    25,
+    26,
+    32,
+    33,
+    34
+  ],
+  "layout_names": [
+    "QB17",
+    "QB18",
+    "QB19",
+    "QB25",
+    "QB26",
+    "QB27",
+    "QB33",
+    "QB34",
+    "QB35"
+  ],
+  "cz_fidelity_mean": 0.993395535084083,
+  "cz_fidelity_min": 0.989351244115641,
+  "compiled_depth": 32,
+  "compiled_ops": {
+    "r": 51,
+    "cz": 24,
+    "measure": 9,
+    "barrier": 1
+  }
+}

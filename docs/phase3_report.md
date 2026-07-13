@@ -109,7 +109,7 @@ with the *other* baselines but cannot realise this specific advantage.
 | Tier | Platform | SDK / backend | Status |
 |---|---|---|---|
 | Classical CPU | GARCH/LSTM/ESN/AR | scikit-learn, arch | ✅ done |
-| GPU Ising machine | **Fixstars Amplify AE** | `amplify` (FixstarsClient) | ✅ reservoir built; cloud run ready (AMPLIFY_TOKEN) |
+| GPU Ising machine | **Fixstars Amplify AE** | `amplify` (AmplifyAEClient) | ✅ reservoir built; cloud run ready (AMPLIFY_TOKEN) |
 | Ising machine | **Toshiba SBM (SQBM+)** | `amplify` (ToshibaSQBM2Client) | ✅ same API as D-Wave; run ready (TOSHIBA_TOKEN) |
 | Ising machines | Fujitsu DA / Hitachi / NEC | `amplify` (one API) | ✅ reachable via the same backend |
 | Local Ising (free) | SimulatedAnnealing | `dwave.samplers` | ✅ run (0.00814) |
@@ -119,12 +119,82 @@ with the *other* baselines but cannot realise this specific advantage.
 | **Quantum annealer QPU** | **D-Wave Advantage** | `dwave.system` (Leap) | reservoir built; **currently inaccessible / future validation** |
 
 **What has run on real cloud infrastructure:** the gate pipeline was verified
-end-to-end on the live qBraid `qir-sv` API (real job ids, feature fidelity 0.996).
-All reservoir simulators/emulators (AHS, Pulser, SA, Amplify-ready) run locally.
-With D-Wave inaccessible, the next executable cloud steps are (i) Toshiba/Fixstars
-Ising-machine runs for the GPU/classical tier and (ii) QuEra Aquila for the
-neutral-atom QPU tier. The GARCH-beating D-Wave result remains a simulated target,
-not an executed hardware claim.
+end-to-end on the live qBraid `qir-sv` API (real job ids). The updated 120-sample
+qBraid simulator run gives feature fidelity 0.990 and keeps the finite-shot QRC
+forecast aligned with the exact statevector forecast. Fixstars Amplify AE and
+Toshiba SQBM+ now both execute end-to-end as cloud Ising checks. They are useful
+QRC-system evidence, but they are deliberately framed as classical signed-Ising
+ablations: they do not contain the transverse-field dynamics needed by the
+GARCH-beating hybrid result. The GARCH-beating D-Wave-like annealer result
+therefore remains a simulated target, not an executed hardware claim.
+
+### Hybrid validation snapshot
+
+`experiments/phase3_hybrid_validation_table.py` writes
+`results/phase3_hybrid_validation.csv`, which separates the central hybrid claim
+from the executable checks:
+
+| Tier | System | Window | RMSE | Interpretation |
+|---|---|---:|---:|---|
+| Benchmark | GARCH(1,1) | 746 test | 0.00795 | strong baseline |
+| Linear ablation | Ridge on GARCH residual | 746 test | 0.00805 | residual target alone is not enough |
+| Hybrid advantage candidate | QRC annealer, 3-seed | 746 test | 0.00784 | only current GARCH-beating reservoir result |
+| Executed cloud Ising check | Amplify AE | 50 train / 10 test | 0.02989 | runs, but trails residual ablation |
+| Executed cloud Ising check | Toshiba SQBM+ | 50 train / 10 test | 0.02955 | runs, but trails residual ablation |
+| qBraid simulator execution | Gate QRC on qir-sv | 120 test | 0.03898 | execution/fidelity proof; not the hybrid |
+
+### Common-window GARCH-hybrid comparison (2026-07-11)
+
+To remove the window mismatch above, the NISQ-ready reservoirs were rerun on the
+same real-SPY window (400 train / 120 held-out test, GARCH-residual target). GARCH
+scores 0.008318 RMSE and the linear residual ablation scores 0.008630. Pasqal
+analog QRC (0.008426), gate QRC (0.008448), QuEra analog QRC (0.008475), and
+signed-Ising sampling (0.008498) do not beat GARCH, but every reservoir improves
+on the linear ablation by 1.52%--2.36%. This is the clean evidence that nonlinear
+reservoir features add value even when the NISQ-ready physics does not reproduce
+the full transverse-field advantage.
+
+Artifacts: `results/hybrid_showcase_common_400_120.{csv,png}`. Final execution
+commands and budget guards: `docs/hybrid_final_runbook.md`.
+
+### Hardware-safe calibrated hybrid
+
+A shallow-circuit validation sweep locked a Garnet-feasible 5q L3 sparse QRC
+(seed 47, 24 CX) without ranking on test performance. Using the first 20 measured
+rows only for correction-amplitude transfer and evaluating the remaining 100,
+the simulator gives RMSE 0.008023 versus GARCH 0.008015 (0.11% gap). A moving-
+block-bootstrap interval for the RMSE difference spans zero, so this candidate is
+at GARCH level while retaining an active QRC correction (strength 0.47). Pasqal
+and signed-Ising calibrated hybrids also reach within 0.05% of GARCH, but their
+selected corrections are nearly zero and should be described as safe fallback,
+not advantage. See `results/calibrated_hardware_candidates.csv`.
+
+An IQM-native follow-up found a stronger candidate. Pure width increases on Rx
+chain reservoirs (6q/8q/10q/12q) did not generalise. The reason is architectural:
+Rx encoding immediately after preparing |+> is a global phase in the first
+layer. Replacing it with Ry and using a native 3x3 neighbor grid produced a 9q,
+one-layer, 24-CX reservoir. Four expanding validation folds plus worst-fold
+selection locked seed 40 and correction strength 0.175 without test ranking. On
+the 120-day test it scores RMSE 0.008315 versus GARCH 0.008321, a 0.078% point
+improvement. The bootstrap interval spans zero, so this is GARCH-level evidence,
+not yet a statistically significant advantage. See
+`results/iqm_hardware_aware_width_summary.csv`.
+
+The locked strength was then stress-tested rather than retuned on the test rows.
+At 200 shots, ideal sampling gives a 0.095% point improvement over GARCH; an
+IQM-like depolarizing proxy (1.3% two-qubit error) gives 0.187%, with feature
+correlation about 0.972 to the exact reservoir. A free 20-row strength refit was
+rejected because it overfits shot noise. See `results/iqm_q9_grid_noise_stress.csv`.
+
+An expanded validation-only encoding sweep then found a higher-performance
+native Rz candidate (9q, L1, grid, seed 44, order-2 observables). All four
+validation folds improve on GARCH (worst +0.709%, mean +1.819%); the untouched
+120-day test improves by 0.680% (RMSE 0.0082645 versus 0.0083211). Training the
+classical readout on free IQM-like 200-shot simulator features retains a +0.508%
+gain under the noise proxy. The exact-trained readout does not survive sampled
+features, so noise-aware hybrid training is mandatory for this candidate. See
+`results/locked_gate_hybrid_evaluation_iqm_q9_grid_rz_order2.csv` and
+`results/iqm_q9_grid_noise_stress_rz_order2_noiseaware.csv`.
 
 ## 7. Reproducibility
 
@@ -138,6 +208,8 @@ not an executed hardware claim.
 | Ising on Toshiba SBM | `TOSHIBA_TOKEN=… python experiments/ising_cloud_smoke.py --backend toshiba` first, then `… --ising-backend toshiba` |
 | Ising on D-Wave (future) | Leap token, then `… --ising-backend dwave` (currently treated as inaccessible) |
 
+Hybrid validation table: `python experiments/phase3_hybrid_validation_table.py`
+
 Reservoirs: `src/qrc/{reservoir,annealer_reservoir,quera_reservoir,pasqal_reservoir,ising_reservoir}.py`.
 Setup docs: `docs/{quera_aquila_setup,pasqal_fresnel_setup,qbraid_setup}.md`.
 
@@ -149,8 +221,9 @@ Setup docs: `docs/{quera_aquila_setup,pasqal_fresnel_setup,qbraid_setup}.md`.
   noiseless quantum-annealer simulation. A real D-Wave run would be the direct
   confirmation, but D-Wave is currently treated as inaccessible. Therefore the
   near-term submission should avoid claiming an executed GARCH-beating QPU result.
-- Toshiba SQBM smoke test reached the service but returned `401 Unauthorized` with
-  the provided token on the SDK default endpoint. A valid `TOSHIBA_TOKEN` and
-  possibly `TOSHIBA_URL` are needed before the GPU-Ising cloud tier can be executed.
+- Amplify AE and Toshiba SQBM+ now execute, but they are classical Ising machines:
+  they test signed couplings without transverse-field dynamics. They should be
+  reported as QRC-system checks and ablations, not as replacements for a quantum
+  annealer QPU run.
 - GARCH(1,1) is the simplest GARCH; a full econometric panel (GJR/EGARCH/HAR) is
   future work. The residual trick should compose with any of them.
