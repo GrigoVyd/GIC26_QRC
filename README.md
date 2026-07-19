@@ -1,8 +1,22 @@
 # GIC 2026 — Quantum Reservoir Computing: Market Volatility Forecasting
 
+[<img src="https://qbraid-static.s3.amazonaws.com/logos/Launch_on_qBraid_black.png" width="150" alt="Launch on qBraid">](https://account.qbraid.com?gitHubUrl=https%3A%2F%2Fgithub.com%2FGrigoVyd%2FGIC26_QRC.git&redirectUrl=notebooks%2Fphase3_qbraid_reproducibility.ipynb)
+
 Quantum Reservoir Computing (QRC) applied to next-day realized volatility
 prediction for SPY (S&P 500 ETF). This repo is focused exclusively on
 **Track 1: Dynamic Systems Forecasting — Financial Volatility**.
+
+## Phase 3 judge reproducibility
+
+Open `notebooks/phase3_qbraid_reproducibility.ipynb` or use the Launch on
+qBraid button above. A default **Run All** is credit-safe: it reads the compact
+saved hardware artifacts, rebuilds the comparison table and plot, audits the
+IQM/Aquila execution records, and runs a local 9-qubit statevector check. It
+does not read tokens, contact a cloud provider, or submit a paid job.
+
+The optional qBraid simulator smoke is disabled by default and contains a
+zero-pricing assertion. Real-QPU reruns remain in guarded experiment scripts
+with explicit opt-in and credit caps.
 
 ## Task
 
