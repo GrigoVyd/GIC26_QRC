@@ -1,9 +1,8 @@
-"""Build the five-page GIC 2026 Phase 3 technical write-up draft.
+"""Build the GIC 2026 Phase 3 technical write-up (DOCX).
 
-Run this script with the Codex bundled document runtime after generating the
-figures with ``build_phase3_report_figures.py``.  The output deliberately omits
-the official GIC cover page because the repository currently contains a filled
-Phase 2 cover, while Phase 3 requires the official Phase 3 template.
+Generate the figures with ``build_phase3_report_figures.py`` first. The body
+flows continuously (no forced page breaks) and is followed by the references;
+the official Phase 3 cover is prepended in the PDF build (build_phase3_report_pdf.py).
 """
 
 from __future__ import annotations
@@ -326,7 +325,7 @@ def configure_styles(doc: Document) -> None:
     hp = header.paragraphs[0]
     hp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     hp.paragraph_format.space_after = Pt(0)
-    r = hp.add_run("GIC 2026 | qBraid - MITRE - JonesTrading | Phase 3 draft")
+    r = hp.add_run("GIC 2026 | qBraid - MITRE - JonesTrading | Phase 3")
     set_run_font(r, size=9, color=MUTED)
 
     footer = section.footer
@@ -352,21 +351,21 @@ def page_one(doc: Document) -> None:
 
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(8)
-    r = p.add_run("Track A: Financial Volatility Prediction | Team Quanties | Draft 15 July 2026")
+    r = p.add_run("Track A: Financial Volatility Prediction | Team Quanties")
     set_run_font(r, size=10.5, bold=True, color=BLUE)
 
     add_heading(doc, "Abstract", level=1, before=2)
     add_text(doc, "We forecast next-day annualized 21-day realized volatility of SPY from public daily OHLCV data (2010-2024). The classical prior is GARCH(1,1); a fixed quantum reservoir learns only a regularized correction to the GARCH log-volatility forecast. This decomposition makes zero correction exactly equal to GARCH and gives the quantum component a stringent, auditable role: extract nonlinear residual structure without replacing a strong econometric model.")
-    add_text(doc, "The primary real-QPU result is a 9-qubit, native 3x3 IQM Emerald reservoir evaluated on 120 chronological days at 500 shots per circuit. Its pre-specified QREM plus affine-transfer path gives RMSE 0.00831368 versus 0.00832112 for GARCH, a 0.0895% point improvement. The moving-block-bootstrap 95% interval for the RMSE difference is [-0.0000608, +0.0000262], so we claim hardware-level competitiveness, not statistically established quantum advantage. QLIKE is 0.016538 versus 0.016476 for GARCH, while the Mincer-Zarnowitz joint p-value is 0.166 (forecast unbiasedness is not rejected).")
-    add_callout(doc, "Headline.", "Across executed substrates, the hybrid stays within 0.43% RMSE of matched GARCH. Real Aquila also transfers from its local AHS simulator within 0.029% RMSE, while a 12-qubit IQM expansion improves feature fidelity but worsens forecasting. Native topology and validation-locked regularization matter more than qubit count alone.")
+    add_text(doc, "The primary real-QPU result is a 9-qubit, native 3x3 IQM Emerald reservoir evaluated on 120 chronological days at 500 shots per circuit. Its pre-specified quantum readout-error mitigation (QREM) plus affine-transfer path gives RMSE 0.00831368 versus 0.00832112 for GARCH, a 0.0895% point improvement. The moving-block-bootstrap 95% interval for the RMSE difference is [-0.0000608, +0.0000262], so we claim hardware-level competitiveness, not statistically established quantum advantage. QLIKE is 0.016538 versus 0.016476 for GARCH, while the Mincer-Zarnowitz joint p-value is 0.166 (forecast unbiasedness is not rejected).")
+    add_callout(doc, "Headline.", "Across executed substrates, the hybrid stays within 0.43% RMSE of matched GARCH. Real Aquila also transfers from its local analog Hamiltonian simulation (AHS) within 0.029% RMSE, while a 12-qubit IQM expansion improves feature fidelity but worsens forecasting. Native topology and validation-locked regularization matter more than qubit count alone.")
 
     add_heading(doc, "1. Problem framing and data", level=1)
-    add_text(doc, "The target is next-day realized volatility RV[t], computed as the rolling 21-day standard deviation of log returns multiplied by sqrt(252). At forecast time, 20 of the 21 squared-return terms are already known, which gives GARCH a structural advantage. Inputs are causal lags of returns, absolute returns, squared returns, and heterogeneous autoregressive realized-volatility summaries. All splits are chronological; model selection uses training-only expanding folds, never the held-out evaluation rows.")
-    add_text(doc, "We report RMSE, volatility-specific QLIKE loss, and Mincer-Zarnowitz forecast calibration. Classical comparators include Persistence, Ridge/AR, ESN-200, LSTM, and GARCH(1,1). Two evaluation views are kept separate: a 746-day full benchmark for classical and simulator evidence, and a 400-train/120-test common window for hardware-ready and real-hardware transfer experiments.")
+    add_text(doc, "The target is next-day realized volatility RV[t], computed as the rolling 21-day standard deviation of log returns multiplied by sqrt(252). At forecast time, 20 of the 21 squared-return terms are already known, which gives GARCH a structural advantage. Inputs are causal lags of returns, absolute returns, squared returns, and heterogeneous autoregressive realized-volatility (HAR-RV) summaries. All splits are chronological; model selection uses training-only expanding folds, never the held-out evaluation rows.")
+    add_text(doc, "We report RMSE, volatility-specific quasi-likelihood (QLIKE) loss, and Mincer-Zarnowitz forecast calibration. Classical comparators include Persistence, Ridge/AR, ESN-200, LSTM, and GARCH(1,1). Two evaluation views are kept separate: a 746-day full benchmark for classical and simulator evidence, and a 400-train/120-test common window for hardware-ready and real-hardware transfer experiments.")
 
 
 def page_two(doc: Document) -> None:
-    add_heading(doc, "2. Hybrid QRC architecture", level=1, before=0)
+    add_heading(doc, "2. Hybrid QRC architecture", level=1, before=10)
     add_text(doc, "For each market state x[t], GARCH produces a log-volatility prior. A fixed reservoir maps x[t] to shot-estimated one- and two-body observables; only a Ridge readout is trained. The final forecast is log RV_hat[t] = log RV_GARCH[t] + c f_QRC(x[t]), where the Ridge penalty and correction strength c are locked on validation data. Quantum parameters are random-fixed or selected before the test window; no variational quantum optimization is used.")
 
     add_picture(doc, "phase3_hybrid_architecture.png", "Hybrid volatility forecasting architecture combining a GARCH prior, fixed physical quantum reservoir, shot observables, transfer correction, and Ridge residual head.", width=6.45)
@@ -391,8 +390,8 @@ def page_two(doc: Document) -> None:
 
 
 def page_three(doc: Document) -> None:
-    add_heading(doc, "3. Experimental design and simulator evidence", level=1, before=0)
-    add_text(doc, "The full 746-day benchmark establishes task difficulty. GARCH leads the raw-task baselines (RMSE 0.007948), followed by Persistence (0.009408), ESN-200 (0.009704), and LSTM (0.010662). On the GARCH-residual target, the 10-qubit transverse-field Ising reservoir reaches RMSE 0.007844 and QLIKE 0.006445 versus 0.006863 for GARCH: improvements of 1.31% and 6.09%, respectively. The identical Ridge residual ablation has RMSE 0.008051, isolating value to the nonlinear reservoir. This is a simulator result and is not presented as executed hardware advantage.")
+    add_heading(doc, "3. Experimental design and simulator evidence", level=1, before=10)
+    add_text(doc, "The full 746-day benchmark establishes task difficulty. GARCH leads the raw-task baselines (RMSE 0.007948), followed by Persistence (0.009408), ESN-200 (0.009704), and LSTM (0.010662). On the GARCH-residual target, the 10-qubit transverse-field Ising model (TFIM) reservoir reaches RMSE 0.007844 and QLIKE 0.006445 versus 0.006863 for GARCH: improvements of 1.31% and 6.09%, respectively. The identical Ridge residual ablation has RMSE 0.008051, isolating value to the nonlinear reservoir. This is a simulator result and is not presented as executed hardware advantage.")
 
     add_picture(doc, "phase3_simulator_evidence.png", "Two-panel result figure showing the full classical and simulated TFIM benchmark and the improvement of four hardware-ready reservoir simulations over a linear residual ablation.", width=6.35)
     add_caption(doc, "Figure 2. Left: the simulated TFIM hybrid is the advantage candidate. Right: every hardware-ready reservoir improves on the same linear residual ablation, although none beats GARCH on this common window.")
@@ -408,7 +407,7 @@ def page_three(doc: Document) -> None:
 
 
 def page_four(doc: Document) -> None:
-    add_heading(doc, "4. Executed hardware and cloud results", level=1, before=0)
+    add_heading(doc, "4. Executed hardware and cloud results", level=1, before=10)
     add_text(doc, "All reported rows below are completed external executions. Each is compared with GARCH evaluated on the identical held-out rows; therefore percentages are comparable within a row even when absolute RMSE differs across windows.")
 
     add_picture(doc, "phase3_hardware_evidence.png", "Two-panel hardware result figure showing RMSE gaps to matched GARCH across IQM, QuEra, Amplify, and Toshiba, plus the 9-to-12-qubit IQM scaling result.", width=6.35)
@@ -434,9 +433,12 @@ def page_four(doc: Document) -> None:
     add_heading(doc, "Analog and cloud-Ising transfer", level=2, before=2)
     add_text(doc, "Aquila completed 23 paid tasks after two zero-cost validation failures exposed native geometry and local-detuning constraints. Three unlabeled rows calibrate feature alignment and 20 rows are scored. Hardware RMSE is 0.0137535 versus 0.0137495 for the matched local AHS hybrid and 0.0137285 for GARCH; it improves 6.06% over the Ridge residual ablation. Amplify AE and Toshiba remain within 0.43% of GARCH but are classical optimizers, not evidence of quantum advantage.")
 
+    add_heading(doc, "Runtime and compute access", level=2, before=2)
+    add_text(doc, "The reproducible classical pipeline is light: the credit-safe judge notebook reproduces every reported value in about 8 s, and the local statevector reservoir-feature reference (2,984 training and 120 test states on 9 qubits) builds in about 55 s on a laptop CPU, with sub-second readout fitting and scoring. On hardware, each IQM job dispatches 60,000 shots (120 circuits x 500) and the Aquila campaign 1,150 shots (23 tasks x 50); QPU wall-clock is dominated by provider queue and allocation windows. All paid runs were funded from the team's own accounts: despite several requests, sponsor challenge credits on qBraid were not provisioned, so the Aquila campaign used the team's personal qBraid balance and the IQM runs used personal IQM Resonance credits.")
+
 
 def page_five(doc: Document) -> None:
-    add_heading(doc, "5. Conclusions, impact, and reproducibility", level=1, before=0)
+    add_heading(doc, "5. Conclusions, impact, and reproducibility", level=1, before=10)
     add_heading(doc, "Conclusions", level=2, before=1)
     add_bullet(doc, "The strongest executed claim is cross-platform, GARCH-competitive hybrid QRC: IQM is 0.0895% better by RMSE point estimate, Aquila is 0.1823% behind GARCH and effectively matches its local AHS model, and all executed tiers remain within 0.43%.")
     add_bullet(doc, "The strongest mechanism claim remains simulated: the transverse-field signed-coupling reservoir improves RMSE and QLIKE over GARCH, whereas neutral-atom and classical signed-Ising ablations do not reproduce the full gain.")
@@ -457,24 +459,16 @@ def page_five(doc: Document) -> None:
         [
             ["Concrete qBraid execution", "Aquila task IDs/checkpoint; qir-sv execution records", "Complete"],
             ["Re-runnable code and outputs", "Judge notebook, experiments/, compact CSV/JSON evidence", "Complete"],
-            ["5-page, 11-point write-up", "This five-page body plus separate references", "Draft complete"],
-            ["Official cover and Launch on qBraid", "README Launch button added; current cover is Phase 2", "Cover pending"],
+            ["5-page, 11-point write-up", "This body (11-pt Times New Roman) plus separate references", "Complete"],
+            ["Official cover and Launch on qBraid", "Official Phase 3 cover prepended; README Launch on qBraid button", "Complete"],
         ],
         [1900, 5500, 1960],
         font_size=9.2,
     )
 
-    add_heading(doc, "Recommended final work", level=2, before=2)
-    add_number(doc, "Do not spend the remaining 580 qBraid credits. If 2,500 credits are added, authorize Aquila only after a validation-locked local analog candidate beats GARCH by at least 0.30% RMSE.")
-    add_number(doc, "If that gate passes, use 31 x 50-shot tasks (estimated 2,480 credits): four engineering-smoke tasks, then resume the identical checkpoint; reserve three rows for label-free transfer and score 28.")
-    add_number(doc, "Prioritize free work first: exact-window GJR/EGARCH/HAR baselines, regime/bootstrap analysis, the qBraid notebook, and a deterministic data snapshot.")
-    add_number(doc, "No further paid IQM, Amplify, or Toshiba run is justified unless the rubric changes. The 9q/12q comparison and 120-row cloud runs already answer the main scaling and substrate questions.")
-
-    add_callout(doc, "Draft completion gate.", "Insert the official Phase 3 cover page without altering its template, replace the current Phase 2 cover, add the final repository commit hash, verify the qBraid Launch link, and remove this callout before submission.", fill=PALE_GOLD)
-
 
 def references(doc: Document) -> None:
-    add_heading(doc, "References (excluded from the five-page limit)", level=1, before=0)
+    add_heading(doc, "References (excluded from the five-page limit)", level=1, before=12)
     refs = [
         "qBraid, MITRE, and JonesTrading. Global Industry Challenge 2026: Phase 3 Challenge Description. 2026.",
         "Aqora. qBraid, MITRE & JonesTrading: GIC 2026 track page. https://aqora.io/challenges/global-industry-challenge-2026/tracks/gic-2026-qBraid-MITRE-JonesTrading (accessed 15 July 2026).",
@@ -503,24 +497,21 @@ def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
     configure_styles(doc)
+    # Sections flow continuously (no forced page breaks) so short sections do not
+    # leave large empty gaps; only the excluded references start on a fresh page.
     page_one(doc)
-    doc.add_page_break()
     page_two(doc)
-    doc.add_page_break()
     page_three(doc)
-    doc.add_page_break()
     page_four(doc)
-    doc.add_page_break()
     page_five(doc)
-    doc.add_page_break()
     references(doc)
 
     core = doc.core_properties
     core.title = "Hardware-Competitive Quantum Reservoir Computing for SPY Volatility"
-    core.subject = "GIC 2026 Phase 3 technical write-up draft"
+    core.subject = "GIC 2026 Phase 3 technical write-up"
     core.author = "Team Quanties"
     core.keywords = "quantum reservoir computing, volatility forecasting, IQM, QuEra, qBraid"
-    core.comments = "Draft generated from saved experiment artifacts; official Phase 3 cover page not included."
+    core.comments = "Generated from saved experiment artifacts; official Phase 3 cover prepended in the PDF build."
 
     doc.save(OUT)
     print(f"Wrote {OUT}")
