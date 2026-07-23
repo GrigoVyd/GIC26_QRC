@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quanties · Quantum Reservoir Computing for Market Volatility · GIC 2026</title>
+<meta name="description" content="A GARCH-anchored quantum reservoir hybrid for SPY volatility, executed on real IQM Emerald and QuEra Aquila hardware. Team Quanties, Global Industry Challenge 2026.">
+<style>
+  :root{
+    --bg:#070a14; --ink:#eaf0ff; --muted:#9aa7c7;
+    --cyan:#22d3ee; --purple:#a855f7; --teal:#2dd4bf; --gold:#fbbf24;
+    --card:rgba(255,255,255,.04); --line:rgba(255,255,255,.10);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55; -webkit-font-smoothing:antialiased; overflow-x:hidden;
+  }
+  a{color:inherit}
+  .glow{position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(680px 480px at 12% -8%, rgba(168,85,247,.30), transparent 60%),
+      radial-gradient(720px 520px at 92% 4%, rgba(34,211,238,.22), transparent 60%),
+      radial-gradient(760px 620px at 60% 108%, rgba(45,212,191,.16), transparent 60%);}
+  .wrap{position:relative; z-index:1; max-width:1080px; margin:0 auto; padding:0 22px}
+  section{padding:58px 0}
+  .kicker{display:inline-flex; gap:8px; align-items:center; font-size:12.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); border:1px solid var(--line);
+    padding:7px 13px; border-radius:999px; background:var(--card)}
+  h1{font-size:clamp(34px,6vw,66px); line-height:1.04; margin:22px 0 0; letter-spacing:-.02em; font-weight:800}
+  .grad{background:linear-gradient(100deg,#c4b5fd,#22d3ee 55%,#2dd4bf);
+    -webkit-background-clip:text; background-clip:text; color:transparent}
+  .lede{font-size:clamp(16px,2.3vw,21px); color:#c6d0ee; max-width:720px; margin:20px 0 0}
+  .meta{display:flex; flex-wrap:wrap; gap:10px; margin:26px 0 0}
+  .chip{font-size:13px; color:var(--muted); border:1px solid var(--line);
+    padding:6px 12px; border-radius:999px; background:var(--card)}
+  .cta{display:flex; flex-wrap:wrap; gap:14px; margin:34px 0 0}
+  .btn{display:inline-flex; align-items:center; gap:9px; padding:13px 22px; border-radius:12px;
+    font-weight:700; font-size:15px; text-decoration:none; border:1px solid var(--line);
+    transition:transform .15s ease, box-shadow .15s ease}
+  .btn:hover{transform:translateY(-2px)}
+  .btn-primary{border:none; color:#04121c;
+    background:linear-gradient(100deg,#67e8f9,#22d3ee 50%,#2dd4bf);
+    box-shadow:0 10px 30px rgba(34,211,238,.35)}
+  .btn-ghost{background:var(--card); color:var(--ink)}
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px}
+  .stat{border:1px solid var(--line); background:var(--card); border-radius:18px; padding:22px 20px;
+    backdrop-filter:blur(6px)}
+  .stat .n{font-size:clamp(30px,4.5vw,44px); font-weight:800; letter-spacing:-.02em; line-height:1}
+  .stat .n.good{background:linear-gradient(100deg,#34d399,#22d3ee); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .stat .n.neut{background:linear-gradient(100deg,#c4b5fd,#818cf8); -webkit-background-clip:text; background-clip:text; color:transparent}
+  .stat .l{margin-top:10px; font-size:13.5px; color:var(--muted)}
+  .stat .l b{color:var(--ink); font-weight:600}
+  h2{font-size:clamp(24px,3.6vw,34px); font-weight:800; letter-spacing:-.01em; margin:0 0 6px}
+  .sub{color:var(--muted); max-width:680px; margin:0 0 24px}
+  .figure{background:#fff; border-radius:18px; padding:18px; border:1px solid var(--line);
+    box-shadow:0 24px 60px rgba(0,0,0,.45)}
+  .figure img{width:100%; height:auto; display:block; border-radius:8px}
+  .cap{margin:14px 2px 0; font-size:13.5px; color:var(--muted)}
+  .callout{border:1px solid var(--line); border-left:3px solid var(--gold);
+    background:linear-gradient(180deg,rgba(251,191,36,.08),rgba(251,191,36,.02));
+    border-radius:14px; padding:22px 24px}
+  .callout h3{margin:0 0 8px; font-size:19px}
+  .callout p{margin:0; color:#d7def5}
+  .repro{display:grid; grid-template-columns:1.1fr .9fr; gap:26px; align-items:center;
+    border:1px solid var(--line); background:var(--card); border-radius:20px; padding:30px}
+  .repro code{background:rgba(255,255,255,.06); padding:2px 7px; border-radius:6px;
+    font-size:13px; border:1px solid var(--line)}
+  footer{border-top:1px solid var(--line); padding:34px 0 60px; color:var(--muted); font-size:14px}
+  footer a{color:#c6d0ee; text-decoration:none}
+  footer a:hover{text-decoration:underline}
+  .flabels{display:flex; flex-wrap:wrap; gap:8px; margin-top:16px}
+  .tag{font-size:12px; color:var(--muted); border:1px solid var(--line); border-radius:8px; padding:4px 10px}
+  @media(max-width:720px){ .repro{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+
+<header class="wrap" style="padding-top:70px">
+  <span class="kicker">◇ Global Industry Challenge 2026 · qBraid × MITRE × JonesTrading</span>
+  <h1>Quantum Reservoir Computing<br><span class="grad">for Market Volatility</span></h1>
+  <p class="lede">A GARCH-anchored hybrid whose <b style="color:#fff">fixed</b> quantum reservoir learns only the
+    residual a strong econometric model misses — executed on <b style="color:#fff">real IQM Emerald and
+    QuEra Aquila hardware</b>, not just simulated.</p>
+  <div class="meta">
+    <span class="chip">Team Quanties</span>
+    <span class="chip">Track A · Financial Volatility</span>
+    <span class="chip">SPY realized volatility · 2010–2024</span>
+  </div>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://account.qbraid.com?gitHubUrl=https%3A%2F%2Fgithub.com%2FGrigoVyd%2FGIC26_QRC.git&redirectUrl=notebooks%2Fphase3_qbraid_reproducibility.ipynb">▶ Launch on qBraid</a>
+    <a class="btn btn-ghost" href="https://github.com/GrigoVyd/GIC26_QRC/blob/main/output/pdf/Quanties__Phase3_V1.pdf">Read the write-up (PDF)</a>
+    <a class="btn btn-ghost" href="https://github.com/GrigoVyd/GIC26_QRC">View on GitHub</a>
+  </div>
+</header>
+
+<section class="wrap">
+  <div class="stats">
+    <div class="stat">
+      <div class="n good">−0.090%</div>
+      <div class="l">Best executed hybrid: <b>IQM 9-qubit</b> RMSE vs matched GARCH</div>
+    </div>
+    <div class="stat">
+      <div class="n neut">≤ 0.43%</div>
+      <div class="l">Worst-case gap to GARCH across <b>every</b> real substrate</div>
+    </div>
+    <div class="stat">
+      <div class="n good">0.029%</div>
+      <div class="l"><b>QuEra Aquila</b> hardware vs its own analog simulator</div>
+    </div>
+    <div class="stat">
+      <div class="n neut">3</div>
+      <div class="l">Real QPU / cloud substrates executed: <b>IQM · QuEra · Ising</b></div>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>The architecture</h2>
+  <p class="sub">A classical GARCH prior protects the baseline; a fixed physical reservoir supplies nonlinear
+    residual features. Only a linear readout is trained — zero correction recovers GARCH exactly.</p>
+  <div class="figure"><img src="assets/architecture.png" alt="Hybrid QRC architecture: GARCH prior plus fixed quantum reservoir, shot observables, transfer layer, and Ridge residual head."></div>
+  <div class="flabels">
+    <span class="tag">9 qubits · depth 32 · 24 CZ · 0 SWAP</span>
+    <span class="tag">500 shots / circuit</span>
+    <span class="tag">⟨Z⟩, ⟨ZᵢZⱼ⟩ observables</span>
+    <span class="tag">no variational training</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Executed on real hardware</h2>
+  <p class="sub">Every bar is a completed run on real quantum or cloud hardware, scored against GARCH on identical
+    held-out days. More qubits raised feature fidelity but did <b>not</b> improve the forecast.</p>
+  <div class="figure"><img src="assets/results.png" alt="RMSE gap to matched GARCH across IQM, QuEra, Amplify, and Toshiba, plus the 9-to-12-qubit IQM scaling trade-off."></div>
+  <p class="cap">Negative gap = better than GARCH. The 9-qubit point gain is not statistically significant — the honest claim is hardware-level competitiveness.</p>
+</section>
+
+<section class="wrap">
+  <div class="callout">
+    <h3>Honest by design</h3>
+    <p>In simulation, QRC ≈ GARCH — GARCH has a structural edge on this target. On real hardware the hybrid stays
+      within <b>0.43% RMSE</b> of GARCH across three substrates and transfers faithfully from simulator to QPU.
+      We claim <b>hardware-level competitiveness and portability</b>, not proven quantum advantage.</p>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Under the hood</h2>
+  <p class="sub">The mechanism study: only the transverse-field, signed-coupling reservoir reproduces the full
+    simulated edge — isolating what the quantum dynamics actually contribute.</p>
+  <div class="figure"><img src="assets/simulator.png" alt="Simulator evidence: the TFIM hybrid advantage candidate and hardware-ready reservoir ablations over a linear residual baseline."></div>
+</section>
+
+<section class="wrap">
+  <div class="repro">
+    <div>
+      <h2 style="margin-bottom:10px">Reproduce every number</h2>
+      <p class="sub" style="margin-bottom:16px">A credit-safe judge notebook rebuilds the entire headline —
+        tables, bootstrap intervals, and figures — from committed evidence in <b style="color:#fff">~8 seconds</b>.
+        No tokens read, no network calls, no paid jobs.</p>
+      <p style="margin:0 0 20px; color:var(--muted); font-size:14px">Open <code>notebooks/phase3_qbraid_reproducibility.ipynb</code> or click Launch.</p>
+      <a class="btn btn-primary" href="https://account.qbraid.com?gitHubUrl=https%3A%2F%2Fgithub.com%2FGrigoVyd%2FGIC26_QRC.git&redirectUrl=notebooks%2Fphase3_qbraid_reproducibility.ipynb">▶ Launch on qBraid</a>
+    </div>
+    <div class="stats" style="grid-template-columns:1fr">
+      <div class="stat"><div class="n neut" style="font-size:30px">~8 s</div><div class="l">Judge notebook · full headline reproduction</div></div>
+      <div class="stat"><div class="n neut" style="font-size:30px">0 credits</div><div class="l">Default run reads only committed artifacts</div></div>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <b style="color:var(--ink)">Team Quanties</b> · Global Industry Challenge 2026 · Dynamic Systems Forecasting<br>
+  <span style="display:inline-block;margin-top:8px">
+    <a href="https://github.com/GrigoVyd/GIC26_QRC">Repository</a> ·
+    <a href="https://github.com/GrigoVyd/GIC26_QRC/blob/main/notebooks/phase3_qbraid_reproducibility.ipynb">Judge notebook</a> ·
+    <a href="https://github.com/GrigoVyd/GIC26_QRC/blob/main/output/pdf/Quanties__Phase3_V1.pdf">Write-up</a> ·
+    <a href="https://qbraid.com">qBraid</a>
+  </span>
+</footer>
+
+</body>
+</html>
