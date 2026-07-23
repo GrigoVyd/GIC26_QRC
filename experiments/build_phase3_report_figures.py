@@ -62,7 +62,7 @@ def add_box(ax, xy, width, height, title, detail, *, fc=LIGHT, ec=BLUE):
     )
     ax.add_patch(box)
     ax.text(x + width / 2, y + height * 0.68, title, ha="center", va="center", weight="bold", color=NAVY, fontsize=9.0)
-    ax.text(x + width / 2, y + height * 0.30, detail, ha="center", va="center", fontsize=7.0, color="#263238")
+    ax.text(x + width / 2, y + height * 0.30, detail, ha="center", va="center", fontsize=6.3, color="#263238")
     return box
 
 
@@ -88,10 +88,10 @@ def architecture_figure() -> None:
 
     add_box(ax, (0.02, 0.58), 0.15, 0.25, "Causal market\nstate", "return lags, |r|, r^2,\nHAR-RV features", fc="#F7F9FC")
     add_box(ax, (0.22, 0.68), 0.16, 0.19, "GARCH prior", "known 20/21-day\nvolatility structure", fc="#FFF7E6", ec=GOLD)
-    add_box(ax, (0.22, 0.31), 0.16, 0.25, "Fixed QRC\nreservoir", "IQM grid / Rydberg array /\nsigned-Ising sampler", fc="#EAF4FB", ec=BLUE)
+    add_box(ax, (0.22, 0.31), 0.16, 0.25, "Fixed QRC\nreservoir", "IQM grid, Rydberg array,\nsigned-Ising sampler", fc="#EAF4FB", ec=BLUE)
     add_box(ax, (0.43, 0.31), 0.16, 0.25, "Shot\nobservables", "<Z_i>, <Z_i Z_j>\n(no quantum training)", fc="#E8F5F2", ec=TEAL)
     add_box(ax, (0.64, 0.31), 0.15, 0.25, "Transfer layer", "QREM + label-free\naffine alignment", fc="#F2EEF8", ec="#7E57C2")
-    add_box(ax, (0.84, 0.31), 0.14, 0.25, "Ridge residual\nhead", "validation-locked alpha\nand correction strength", fc="#FCEFEF", ec=RED)
+    add_box(ax, (0.83, 0.31), 0.16, 0.25, "Ridge residual\nhead", "validation-locked α,\ncorrection strength", fc="#FCEFEF", ec=RED)
     add_box(ax, (0.67, 0.70), 0.25, 0.18, "Final volatility forecast", r"$\log \widehat{RV}=\log RV_{GARCH}+c f_{QRC}(x)$", fc="#ECF6EF", ec=GREEN)
 
     arrow(ax, (0.17, 0.705), (0.22, 0.775))
@@ -192,11 +192,15 @@ def hardware_evidence_figure() -> None:
     ax.set_xlabel("RMSE gap vs matched GARCH (%)")
     ax.set_title("A. Executed hardware/cloud hybrids")
     ax.grid(axis="x", alpha=0.22)
-    ax.set_xlim(-0.16, 0.50)
+    ax.set_xlim(-0.22, 0.52)
     for yi, v in zip(y, gaps):
-        ax.text(v + 0.012, yi, f"{v:+.3f}%", va="center", ha="left", fontsize=8.6)
-    ax.text(-0.145, 4.62, "better", color=GREEN, fontsize=8.5)
-    ax.text(0.43, 4.62, "worse", color=RED, fontsize=8.5, ha="right")
+        # keep every data label OUTSIDE its bar (left for negative, right for positive)
+        if v < 0:
+            ax.text(v - 0.012, yi, f"{v:+.3f}%", va="center", ha="right", fontsize=8.6)
+        else:
+            ax.text(v + 0.012, yi, f"{v:+.3f}%", va="center", ha="left", fontsize=8.6)
+    ax.text(-0.205, 4.62, "better", color=GREEN, fontsize=8.5)
+    ax.text(0.50, 4.62, "worse", color=RED, fontsize=8.5, ha="right")
 
     # ---- Panel B: clean 9q -> 12q scaling trade-off schematic ----
     # A twin-axis dual-bar chart made the two metrics ambiguous; a two-column
@@ -212,7 +216,7 @@ def hardware_evidence_figure() -> None:
     ax.axis("off")
     ax.set_title("B. 9q-to-12q scaling trade-off")
 
-    w = 0.195  # box width; arrow endpoints assume half-width w/2
+    w = 0.225  # box width; arrow endpoints assume half-width w/2
 
     def value_cell(cx, cy, big, small, *, fc, ec, big_color=NAVY,
                    small_color=None, big_size=12.0):
@@ -227,7 +231,7 @@ def hardware_evidence_figure() -> None:
             ax.text(cx, cy - 0.048, small, ha="center", va="center",
                     fontsize=8.0, color=small_color or big_color)
 
-    x9, x12, xlab = 0.58, 0.89, 0.40
+    x9, x12, xlab = 0.555, 0.865, 0.39
 
     # column headers
     ax.text(x9, 0.915, "9 qubits", ha="center", va="center", weight="bold",
@@ -250,9 +254,9 @@ def hardware_evidence_figure() -> None:
     ax.text(xlab, y2, "RMSE gap\nvs GARCH", ha="right", va="center",
             fontsize=8.8, color="#263238")
     value_cell(x9, y2, f"{-g9:+.3f}%", "better", fc="#ECF6EF", ec=GREEN,
-               big_color=GREEN, small_color=GREEN, big_size=10.5)
+               big_color=GREEN, small_color=GREEN, big_size=10.0)
     value_cell(x12, y2, f"{-g12:+.3f}%", "worse", fc="#FCEFEF", ec=RED,
-               big_color=RED, small_color=RED, big_size=10.5)
+               big_color=RED, small_color=RED, big_size=10.0)
     arrow(ax, (x9 + w / 2 + 0.005, y2), (x12 - w / 2 - 0.005, y2), color=RED)
     ax.text((x9 + x12) / 2, y2 + 0.145, f"{(-g12) - (-g9):.3f} pp worse",
             ha="center", va="center", fontsize=8.6, weight="bold", color=RED)
