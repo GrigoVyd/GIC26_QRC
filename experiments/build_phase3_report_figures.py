@@ -267,7 +267,7 @@ def hardware_evidence_figure() -> None:
         boxstyle="round,pad=0.006,rounding_size=0.03",
         linewidth=1.3, edgecolor=GOLD, facecolor="#FFF7E6"))
     ax.text(0.5, 0.097, "Higher feature fidelity did not improve the forecast",
-            ha="center", va="center", fontsize=9.0, weight="bold", color="#7A5A00")
+            ha="center", va="center", fontsize=8.1, weight="bold", color="#7A5A00")
 
     fig.suptitle("Real execution: near-GARCH performance and a topology-aware scaling result", fontsize=12.5, weight="bold", color=NAVY, y=1.02)
     fig.tight_layout()

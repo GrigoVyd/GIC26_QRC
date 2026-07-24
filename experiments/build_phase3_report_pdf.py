@@ -320,7 +320,7 @@ def build_story(st):
         P("4. Executed hardware and cloud results", H1),
         P("All rows below are completed external executions and are compared with GARCH on identical held-out rows. Percentages are comparable within a row even when absolute RMSE differs across windows.", B),
         fig("phase3_hardware_evidence.png", 7.0 * inch, 3.16 * inch,
-            "<b>Figure 3.</b> Negative RMSE gap is better than GARCH. The small 9-qubit point gain is not significant; width alone does not improve the forecast.", st),
+            "<b>Figure 3.</b> Negative RMSE gap is better. Panel B shows that higher 12-qubit feature fidelity does not improve the forecast.", st),
         data_table(
             ["Platform", "Native workload", "Evaluation", "Cost", "Gap", "Reading"],
             [
@@ -345,10 +345,11 @@ def build_story(st):
         P("5. Conclusions, impact, and reproducibility", H1),
         P("Conclusions", H2),
         bullets([
-            "The strongest executed claim is cross-platform, GARCH-competitive hybrid QRC: IQM is 0.0895% better by RMSE point estimate; Aquila is 0.1823% behind GARCH and effectively matches local AHS; all executed tiers stay within 0.43%.",
+            "The hybrid architecture delivered measurable improvement, not merely parity: the simulated TFIM reduced RMSE by 1.31% and QLIKE by 6.09% versus GARCH; executed IQM 9q produced a 0.0895% lower RMSE point estimate; and the real Aquila hybrid improved 6.06% over the matched Ridge residual ablation.",
             "The strongest mechanism claim is simulated: the transverse-field signed-coupling reservoir improves RMSE and QLIKE over GARCH, whereas neutral-atom and classical signed-Ising ablations do not reproduce the full gain.",
             "More qubits are not automatically better. Native connectivity, noise-aware training, low depth, and conservative correction strength dominate width in this data regime.",
         ], B),
+        P("The full simulated improvement was not recovered on the executed QPUs. The ideal TFIM combines coherent transverse-field mixing with programmable signed interactions, while available devices impose restricted native couplings, finite-shot estimation, device noise, and mitigation or feature-transfer error. Even under those constraints, the residual hybrid preserves the GARCH baseline and produces the improvements above. Because the full simulator benchmark and hardware experiments use different evaluation windows, their percentages demonstrate complementary evidence rather than a direct numerical comparison.", B),
         P("Stakeholder relevance", H2),
         P("Daily volatility forecasts support hedging, market-maker inventory and spread decisions, portfolio risk limits, and scenario generation. The deployable contribution is a modular residual feature engine: it can be switched off to recover GARCH exactly, deployed across substrates, and monitored through correction magnitude and calibration metrics.", B),
         P("Limitations", H2),

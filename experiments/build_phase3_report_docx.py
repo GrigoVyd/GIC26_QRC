@@ -7,6 +7,7 @@ the official Phase 3 cover is prepended in the PDF build (build_phase3_report_pd
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from docx import Document
@@ -411,7 +412,7 @@ def page_four(doc: Document) -> None:
     add_text(doc, "All reported rows below are completed external executions. Each is compared with GARCH evaluated on the identical held-out rows; therefore percentages are comparable within a row even when absolute RMSE differs across windows.")
 
     add_picture(doc, "phase3_hardware_evidence.png", "Two-panel hardware result figure showing RMSE gaps to matched GARCH across IQM, QuEra, Amplify, and Toshiba, plus the 9-to-12-qubit IQM scaling result.", width=6.35)
-    add_caption(doc, "Figure 3. A negative RMSE gap is better than GARCH. The small 9-qubit point gain is not statistically significant; width alone does not improve the forecast.")
+    add_caption(doc, "Figure 3. A negative RMSE gap is better. Panel B shows that higher 12-qubit feature fidelity does not improve the forecast.")
 
     add_table(
         doc,
@@ -440,9 +441,10 @@ def page_four(doc: Document) -> None:
 def page_five(doc: Document) -> None:
     add_heading(doc, "5. Conclusions, impact, and reproducibility", level=1, before=10)
     add_heading(doc, "Conclusions", level=2, before=1)
-    add_bullet(doc, "The strongest executed claim is cross-platform, GARCH-competitive hybrid QRC: IQM is 0.0895% better by RMSE point estimate, Aquila is 0.1823% behind GARCH and effectively matches its local AHS model, and all executed tiers remain within 0.43%.")
+    add_bullet(doc, "The hybrid architecture delivered measurable improvement, not merely parity: the simulated TFIM reduced RMSE by 1.31% and QLIKE by 6.09% versus GARCH; executed IQM 9q produced a 0.0895% lower RMSE point estimate; and the real Aquila hybrid improved 6.06% over the matched Ridge residual ablation.")
     add_bullet(doc, "The strongest mechanism claim remains simulated: the transverse-field signed-coupling reservoir improves RMSE and QLIKE over GARCH, whereas neutral-atom and classical signed-Ising ablations do not reproduce the full gain.")
     add_bullet(doc, "More qubits are not automatically better. Native connectivity, noise-aware training, low-depth encoding, and conservative correction strength dominate width for this data regime.")
+    add_text(doc, "The full simulated improvement was not recovered on the executed QPUs. The ideal TFIM combines coherent transverse-field mixing with programmable signed interactions, while available devices impose restricted native couplings, finite-shot estimation, device noise, and mitigation or feature-transfer error. Even under those constraints, the residual hybrid preserves the GARCH baseline and produces the improvements above. Because the full simulator benchmark and hardware experiments use different evaluation windows, their percentages demonstrate complementary evidence rather than a direct numerical comparison.")
 
     add_heading(doc, "Stakeholder relevance", level=2, before=3)
     add_text(doc, "Daily volatility forecasts support trading-desk hedging, market-maker inventory and spread decisions, portfolio risk limits, and scenario generation. The practical contribution is a modular residual feature engine: it can be switched off to recover GARCH exactly, deployed on multiple substrates, and monitored by its correction magnitude and calibration metrics. That is safer for financial use than an opaque end-to-end replacement.")
@@ -490,11 +492,11 @@ def references(doc: Document) -> None:
     add_text(doc, "Generative AI tools were used for code support, debugging, figure generation, and writing assistance. The experimental design, platform choices, executed jobs, result interpretation, and final claims are the team's own. Secrets and access tokens are excluded from the repository and must be rotated after the hardware campaign.")
 
 
-def main() -> None:
+def main(out: Path = OUT) -> None:
     missing = [p for p in (ASSETS / "phase3_hybrid_architecture.png", ASSETS / "phase3_simulator_evidence.png", ASSETS / "phase3_hardware_evidence.png") if not p.exists()]
     if missing:
         raise FileNotFoundError(f"Missing report figures: {missing}")
-    OUT.parent.mkdir(parents=True, exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
     configure_styles(doc)
     # Sections flow continuously (no forced page breaks) so short sections do not
@@ -513,9 +515,11 @@ def main() -> None:
     core.keywords = "quantum reservoir computing, volatility forecasting, IQM, QuEra, qBraid"
     core.comments = "Generated from saved experiment artifacts; official Phase 3 cover prepended in the PDF build."
 
-    doc.save(OUT)
-    print(f"Wrote {OUT}")
+    doc.save(out)
+    print(f"Wrote {out}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, default=OUT, help="Output DOCX path")
+    main(parser.parse_args().out)
