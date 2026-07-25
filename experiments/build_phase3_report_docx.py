@@ -21,7 +21,7 @@ from docx.shared import Inches, Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "output" / "report" / "assets"
-OUT = ROOT / "output" / "report" / "Quanties_GIC2026_Phase3_Writeup_Draft.docx"
+OUT = ROOT / "output" / "report" / "Quanties_GIC2026_Phase3_Report.docx"
 
 FONT = "Times New Roman"
 NAVY = "17365D"

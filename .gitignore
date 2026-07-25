@@ -3,6 +3,11 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Legacy Phase 3 exports (canonical files use Report.docx and Phase3_V1.pdf)
+/output/pdf/Quanties_GIC2026_Phase3_Writeup_Draft.pdf
+/output/pdf/Quanties__Phase3_V1.pdf
+/output/report/Quanties_GIC2026_Phase3_Writeup_Draft.docx
+
 # C extensions
 *.so
 
