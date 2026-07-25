@@ -33,12 +33,12 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "output" / "report" / "assets"
-OUT = ROOT / "output" / "pdf" / "Quanties_GIC2026_Phase3_Writeup_Draft.pdf"
+OUT = ROOT / "tmp" / "pdfs" / "Quanties_GIC2026_Phase3_Body.pdf"
 # Official GIC Phase 3 cover template (filled). Copied verbatim in front of the
 # body to form the final submission -- never re-rendered (the template may not be
 # modified or recreated). The merge is skipped if the cover is absent.
 COVER = ROOT / "GIC_2026 Cover Page.pdf"
-SUBMISSION = ROOT / "output" / "pdf" / "Quanties__Phase3_V1.pdf"
+SUBMISSION = ROOT / "output" / "pdf" / "Quanties_Phase3_V1.pdf"
 
 NAVY = colors.HexColor("#17365D")
 BLUE = colors.HexColor("#2F75B5")
